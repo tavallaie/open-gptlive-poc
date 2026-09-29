@@ -4,27 +4,17 @@ import unittest
 from pathlib import Path
 
 from open_gptlive_poc.adapters.silero_vad import SileroVAD, resample_pcm16le
-from open_gptlive_poc.adapters.whisper_ctc import WhisperCTC
+from open_gptlive_poc.adapters.faster_whisper import FasterWhisperASR
 
 
-class FakeLogits:
-    def argmax(self, dim: int):
-        return [[1, 2]]
+class FakeSegment:
+    text = "hello local model"
+    end = 2.0
 
 
 class FakeModel:
-    logits = FakeLogits()
-
-    def __call__(self, **inputs):
-        return self
-
-
-class FakeProcessor:
-    def __call__(self, samples, sampling_rate, return_tensors):
-        return {"input_values": samples}
-
-    def batch_decode(self, token_ids, skip_special_tokens):
-        return ["hello local model"]
+    def transcribe(self, samples, language, vad_filter):
+        return iter([FakeSegment()]), object()
 
 
 class AdapterTests(unittest.TestCase):
@@ -49,9 +39,9 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([event.type for event in events], ["speech_started", "speech_stopped"])
         self.assertEqual(events[0].offset_ms, 0)
 
-    def test_whisper_ctc_returns_text_and_session_timestamps(self) -> None:
+    def test_faster_whisper_returns_text_and_session_timestamps(self) -> None:
         with tempfile.NamedTemporaryFile() as model_file:
-            asr = WhisperCTC(model_file.name, processor=FakeProcessor(), model=FakeModel())
+            asr = FasterWhisperASR(model_file.name, model=FakeModel())
             result = asr.transcribe(b"\x00\x00" * 24_000, start_ms=250)
 
         self.assertEqual(result.text, "hello local model")
@@ -60,7 +50,7 @@ class AdapterTests(unittest.TestCase):
     def test_adapters_reject_odd_pcm16_data(self) -> None:
         with tempfile.NamedTemporaryFile() as model_file:
             vad = SileroVAD(model_file.name, infer=lambda samples: 0.0)
-            asr = WhisperCTC(model_file.name, processor=FakeProcessor(), model=FakeModel())
+            asr = FasterWhisperASR(model_file.name, model=FakeModel())
 
             with self.assertRaises(ValueError):
                 vad.append_audio(b"odd")

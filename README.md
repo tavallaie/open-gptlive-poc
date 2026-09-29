@@ -18,7 +18,7 @@ flowchart LR
     Session --> Speaker[Speaker port]
     Session --> Tasks[Tasks port]
     VAD --> Silero[Silero adapter]
-    ASR --> Whisper[Whisper CTC adapter]
+    ASR --> Whisper[Faster-Whisper adapter]
     Router --> Laya[Laya adapter]
     Talker --> LM[LM Studio adapter]
     Speaker --> Supertonic[Supertonic adapter]
@@ -58,3 +58,10 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 Configuration is loaded from `GPTLIVE_*` environment variables. Required
 credentials and local model paths must remain outside the repository.
+
+Example local model configuration:
+
+```bash
+export GPTLIVE_SILERO_MODEL_PATH=/home/ali/Models/silero_vad.onnx
+export GPTLIVE_WHISPER_MODEL_PATH=/home/ali/Models/hub/models--deepdml--faster-whisper-large-v3-turbo-ct2/snapshots/4df90f75321148c3a29a9e2351b7ddf8f5b115a8
+```

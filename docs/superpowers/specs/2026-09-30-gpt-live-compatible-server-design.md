@@ -29,7 +29,7 @@ Sources for the public contract: OpenAI GPT-Live getting started, delegation, se
 | Delegation | Client mode only (`target: "client"`) |
 | Transport | WebSocket first |
 | VAD | Silero |
-| ASR | Whisper CTC, weights already on the machine |
+| ASR | Faster-Whisper, weights already on the machine |
 | Router | Laya typed decisions |
 | Conversational text | LM Studio `/v1/chat/completions` |
 | TTS | Supertonic, resampled to 24 kHz |
@@ -80,7 +80,7 @@ client                    this process                 LM Studio / Laya / other 
   |<----------------------------|
   |  session.input_audio.append |
   |---------------------------->|  Silero VAD on rolling buffer
-  |                             |  long pause → Whisper CTC
+  |                             |  long pause → Faster-Whisper
   |  session.input_transcript   |
   |         .delta              |
   |<----------------------------|
@@ -154,7 +154,7 @@ PCM in → VAD → ASR → Router → Talker
 | Port | Job | First adapter |
 |---|---|---|
 | VAD | Speech start/stop on PCM frames | Silero |
-| ASR | Turn PCM → transcript + timestamps | Whisper CTC |
+| ASR | Turn PCM → transcript + timestamps | Faster-Whisper |
 | Router | Transcript → talk / task / both | Laya |
 | Talker | History + instructions → reply text | LM Studio |
 | Speaker | Text → 24 kHz PCM16LE chunks | Supertonic then resample |
@@ -174,7 +174,7 @@ Mute means VAD consumes no frames. The session stays up.
 
 Barge-in: `speech_started` while Speaker is playing cancels the current utterance.
 
-### ASR (Whisper CTC)
+### ASR (Faster-Whisper)
 
 Input is PCM from last `speech_started` through `speech_stopped`.
 
@@ -344,7 +344,7 @@ LM Studio and Laya token counts stay in those adapters. They are not in the Live
 Load from environment or a local file. Do not commit secrets.
 
 - Live listen host, port, bearer token
-- Paths for Silero and Whisper CTC weights
+- Paths for Silero and Faster-Whisper weights
 - Laya checkpoint and device
 - LM Studio base URL and model
 - Supertonic voice map
@@ -365,13 +365,13 @@ Keep the current Python 3.14 package. Add modules under `src/open_gptlive_poc/`:
 | `live/http.py` | Callback route |
 | `ports/` | Port types only |
 | `adapters/silero_vad.py` | VAD |
-| `adapters/whisper_ctc.py` | ASR |
+| `adapters/faster_whisper.py` | ASR |
 | `adapters/laya_router.py` | Router |
 | `adapters/lmstudio_talker.py` | Talker |
 | `adapters/supertonic_speaker.py` | Speaker |
 | `adapters/http_tasks.py` | Tasks |
 
-Dependencies need user approval before add. Expected later: a WebSocket server, ONNX runtime, `supertonic`, Laya, Silero, Whisper CTC, HTTP client.
+Dependencies need user approval before add. Expected later: a WebSocket server, ONNX runtime, `faster-whisper`, `supertonic`, Laya, Silero, HTTP client.
 
 ## Tests for slice 1
 
@@ -391,7 +391,7 @@ WebRTC SDP, SIP, sideband, fork, store, recording, Responses envelopes, polling 
 ## Later detail (explicitly deferred)
 
 - Exact Laya question JSON and threshold tuning
-- Whisper CTC package and weight path
+- Faster-Whisper package and weight path
 - Full Live voice → Supertonic style table
 - LM Studio system prompt template
 - Auth story beyond a single bearer token
