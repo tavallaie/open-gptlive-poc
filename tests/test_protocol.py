@@ -6,6 +6,11 @@ from open_gptlive_poc.live.protocol import ProtocolError, authenticate, parse_cl
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_start_without_audio_uses_fixed_audio_contract(self) -> None:
+        event = parse_client_event(json.dumps({"type": "session.start", "model": "gpt-live-1"}))
+
+        self.assertEqual(event.type, "session.start")
+
     def test_start_round_trips_and_ignores_extra_fields(self) -> None:
         event = parse_client_event(
             json.dumps(
@@ -31,6 +36,16 @@ class ProtocolTests(unittest.TestCase):
             parse_client_event(json.dumps({"type": "session.input_audio.append", "audio": encoded}))
 
         self.assertEqual(raised.exception.code, "invalid_audio")
+
+    def test_supplied_audio_format_must_be_complete_and_exact(self) -> None:
+        base = {"type": "session.start", "model": "gpt-live-1"}
+        partial = {**base, "audio": {"format": {"sample_rate": 24000}}}
+        conflicting = {**base, "audio": {"format": {"encoding": "pcm16", "sample_rate": 24000, "channels": 1}}}
+
+        with self.assertRaisesRegex(ProtocolError, "encoding is required"):
+            parse_client_event(json.dumps(partial))
+        with self.assertRaisesRegex(ProtocolError, "must be pcm16le"):
+            parse_client_event(json.dumps(conflicting))
 
     def test_immutable_update_includes_client_event_id(self) -> None:
         with self.assertRaises(ProtocolError) as raised:

@@ -179,22 +179,29 @@ def _validate_audio(data: Mapping[str, Any], event_id: str | None) -> None:
 
 
 def _validate_audio_format(audio: Any, event_id: str | None) -> None:
+    """Validate supplied audio formats against the fixed WebSocket audio contract."""
     if audio is None:
         return
     if not isinstance(audio, dict):
         _fail("invalid_value", "audio must be an object", "audio", event_id)
     formats = [audio]
     formats.extend(value for value in audio.values() if isinstance(value, dict))
+    found_format = False
     for value in formats:
         audio_format = value.get("format")
         if audio_format is None:
             continue
+        found_format = True
         if not isinstance(audio_format, dict):
             _fail("invalid_value", "audio.format must be an object", "audio.format", event_id)
         expected = {"encoding": "pcm16le", "sample_rate": 24000, "channels": 1}
         for key, required in expected.items():
-            if key in audio_format and audio_format[key] != required:
+            if key not in audio_format:
+                _fail("invalid_value", f"audio.format.{key} is required", f"audio.format.{key}", event_id)
+            if audio_format[key] != required:
                 _fail("invalid_value", f"audio.format.{key} must be {required}", f"audio.format.{key}", event_id)
+    if not found_format:
+        _fail("invalid_value", "audio.format is required when audio is supplied", "audio.format", event_id)
 
 
 def _fail(code: str, message: str, param: str, event_id: str | None) -> None:
