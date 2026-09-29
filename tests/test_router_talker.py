@@ -48,6 +48,25 @@ class RouterTests(unittest.TestCase):
 
 
 class TalkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_lm_studio_api_uses_input_and_output_message(self):
+        captured = {}
+
+        def transport(url, body, headers):
+            captured.update(url=url, body=json.loads(body))
+            return json.dumps({"output": [{"type": "message", "content": "Blue."}]}).encode()
+
+        talker = LMStudioTalker("http://localhost:1234/api/v1", "local-model", transport=transport)
+        result = await talker.reply(TalkRequest("What color?", instructions=("Answer briefly.",)))
+
+        self.assertEqual(result, "Blue.")
+        self.assertEqual(captured["url"], "http://localhost:1234/api/v1/chat")
+        self.assertEqual(captured["body"], {
+            "model": "local-model",
+            "input": "What color?",
+            "store": False,
+            "system_prompt": "Answer briefly.",
+        })
+
     async def test_sends_context_and_returns_plain_reply(self):
         captured = {}
 

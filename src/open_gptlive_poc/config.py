@@ -23,7 +23,7 @@ class Settings:
     whisper_model_path: str | None = None
     gliner_model_path: str | None = None
     gliner_device: str = "cpu"
-    lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
+    lm_studio_base_url: str = "http://127.0.0.1:1234/api/v1"
     lm_studio_model: str = "local-model"
     supertonic_voice_map: dict[str, str] | None = None
     tasks_url: str = "http://127.0.0.1:8080/tasks"
