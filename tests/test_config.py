@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from open_gptlive_poc.config import ConfigurationError, Settings
 
@@ -22,6 +23,11 @@ class SettingsTests(unittest.TestCase):
     def test_missing_required_values_are_reported(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):
             Settings.from_env({})
+
+    def test_empty_environment_mapping_does_not_use_process_environment(self) -> None:
+        with patch.dict("os.environ", VALID_ENV):
+            with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):
+                Settings.from_env({})
 
     def test_invalid_threshold_is_rejected(self) -> None:
         environment = {**VALID_ENV, "GPTLIVE_LAYA_TASK_THRESHOLD": "2"}

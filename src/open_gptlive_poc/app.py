@@ -28,6 +28,7 @@ def create_app(settings: Settings, ports: Ports | None = None) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        """Return a minimal liveness response."""
         return {"status": "ok"}
 
     return app

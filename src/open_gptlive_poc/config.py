@@ -34,7 +34,7 @@ class Settings:
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "Settings":
         """Load settings from environment variables and validate them."""
-        values = dict(environ or os.environ)
+        values = dict(os.environ if environ is None else environ)
         prefix = "GPTLIVE_"
         raw = {key.removeprefix(prefix).lower(): value for key, value in values.items() if key.startswith(prefix)}
         defaults = cls()
@@ -80,6 +80,7 @@ class Settings:
 
 
 def _integer(value: str | None, default: int, name: str) -> int:
+    """Parse an integer setting or return its default."""
     try:
         return default if value is None else int(value)
     except ValueError as exc:
@@ -87,6 +88,7 @@ def _integer(value: str | None, default: int, name: str) -> int:
 
 
 def _number(value: str | None, default: float, name: str) -> float:
+    """Parse a numeric setting or return its default."""
     try:
         return default if value is None else float(value)
     except ValueError as exc:
@@ -94,6 +96,7 @@ def _number(value: str | None, default: float, name: str) -> float:
 
 
 def _voice_map(value: str | None) -> dict[str, str] | None:
+    """Parse the optional JSON voice map or return the default mapping."""
     if value is None:
         return {"marin": "F1"}
     try:
