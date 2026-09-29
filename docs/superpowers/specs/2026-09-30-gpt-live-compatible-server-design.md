@@ -31,7 +31,7 @@ Sources for the public contract: OpenAI GPT-Live getting started, delegation, se
 | VAD | Silero |
 | ASR | Faster-Whisper, weights already on the machine |
 | Router | GLiNER2.5-Decide typed decisions |
-| Conversational text | LM Studio native `/api/v1/chat` |
+| Conversational text | LM Studio OpenAI-compatible `/v1/chat/completions` |
 | TTS | Supertonic, resampled to 24 kHz |
 | Tasks | Async HTTP POST out, callback in |
 | Process shape | One process, six ports, adapters |
@@ -205,8 +205,8 @@ The GLiNER classification labels live in one module. Change labels there, not in
 
 ### Talker (LM Studio)
 
-Config supplies base URL (example `http://127.0.0.1:1234/api/v1`) and model name.
-The adapter also supports the OpenAI-compatible `/v1/chat/completions` path.
+Config supplies base URL (example `http://127.0.0.1:1234/v1`) and model name.
+The adapter also supports LM Studio's native `/api/v1/chat` path.
 
 Input is session instructions, thinking appends, and recent input/output transcripts.
 

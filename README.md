@@ -68,20 +68,21 @@ repository and point `GPTLIVE_GLINER_MODEL_PATH` at that snapshot. The model is
 English-only; use the multilingual GLiNER2.5 variant if multilingual routing is
 required.
 
-LM Studio uses its native `/api/v1/chat` endpoint by default. Set
-`GPTLIVE_LM_STUDIO_BASE_URL` to a `/v1` base URL to use the compatible
-`/v1/chat/completions` endpoint instead.
+LM Studio uses the OpenAI-compatible `/v1/chat/completions` endpoint by
+default. Set `GPTLIVE_LM_STUDIO_BASE_URL` to `/api/v1` only when using the
+native LM Studio API.
 
-Test native streaming directly:
+Test OpenAI-compatible streaming directly:
 
 ```bash
-curl -N http://localhost:1234/api/v1/chat \
+curl -N http://localhost:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.5-2b-mtp-voodoo",
-    "system_prompt": "You answer only in rhymes.",
-    "input": "What is your favorite color?",
-    "stream": true,
-    "store": false
+    "messages": [
+      {"role": "system", "content": "You answer only in rhymes."},
+      {"role": "user", "content": "What is your favorite color?"}
+    ],
+    "stream": true
   }'
 ```
