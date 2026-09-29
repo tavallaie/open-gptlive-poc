@@ -16,4 +16,6 @@ class Transcript:
 class ASR(Protocol):
     """Transcribe one 24 kHz PCM16LE speech turn."""
 
-    def transcribe(self, pcm16le: bytes, start_ms: int) -> Transcript: ...
+    def transcribe(self, pcm16le: bytes, start_ms: int) -> Transcript:
+        """Transcribe one speech turn with session-relative timing."""
+        ...

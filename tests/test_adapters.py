@@ -13,7 +13,10 @@ class FakeSegment:
 
 
 class FakeModel:
+    last_sample_count = 0
+
     def transcribe(self, samples, language, vad_filter):
+        self.last_sample_count = len(samples)
         return iter([FakeSegment()]), object()
 
 
@@ -47,6 +50,22 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.text, "hello local model")
         self.assertEqual((result.start_ms, result.end_ms), (250, 1250))
 
+    def test_faster_whisper_receives_16khz_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory)
+            (checkpoint / "tokenizer.json").touch()
+            model = FakeModel()
+            asr = FasterWhisperASR(str(checkpoint), model=model)
+
+            asr.transcribe(b"\x00\x00" * 24_000, start_ms=0)
+
+        self.assertEqual(model.last_sample_count, 16_000)
+
+    def test_faster_whisper_rejects_incomplete_local_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "tokenizer.json"):
+                FasterWhisperASR(directory)
+
     def test_adapters_reject_odd_pcm16_data(self) -> None:
         with tempfile.NamedTemporaryFile() as model_file:
             vad = SileroVAD(model_file.name, infer=lambda samples: 0.0)
@@ -56,6 +75,16 @@ class AdapterTests(unittest.TestCase):
                 vad.append_audio(b"odd")
             with self.assertRaises(ValueError):
                 asr.transcribe(b"odd", start_ms=0)
+
+    def test_muted_audio_advances_offsets_and_resets_speech(self) -> None:
+        with tempfile.NamedTemporaryFile() as model_file:
+            vad = SileroVAD(model_file.name, infer=lambda samples: 0.9)
+            chunk = b"\x00\x00" * 768
+            self.assertEqual(vad.append_audio(chunk)[0].offset_ms, 0)
+            vad.set_muted(True)
+            vad.append_audio(chunk)
+            vad.set_muted(False)
+            self.assertEqual(vad.append_audio(chunk)[0].offset_ms, 64)
 
 
 if __name__ == "__main__":
