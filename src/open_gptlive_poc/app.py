@@ -1,7 +1,10 @@
 """FastAPI composition root for the GPT-Live server."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
+
 from fastapi import FastAPI
+from fastapi import WebSocket
 
 from .config import Settings
 from .ports import ASR, Router, Speaker, Tasks, Talker, VAD
@@ -19,16 +22,33 @@ class Ports:
     tasks: Tasks
 
 
-def create_app(settings: Settings, ports: Ports | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    ports: Ports | None = None,
+    ports_factory: Callable[[], Ports | None] | None = None,
+) -> FastAPI:
     """Create the FastAPI application with validated settings and injected ports."""
     settings.validate()
     app = FastAPI(title="GPT-Live server")
     app.state.settings = settings
-    app.state.ports = ports
+    app.state.ports_factory = ports_factory or (lambda: ports)
 
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a minimal liveness response."""
         return {"status": "ok"}
+
+    @app.websocket("/v1/live/sessions")
+    async def live_sessions(websocket: WebSocket) -> None:
+        """Authenticate and run one isolated GPT-Live session."""
+        from .live.protocol import authenticate
+        from .live.session import LiveSession
+
+        if not authenticate(websocket.headers.get("authorization"), settings.bearer_token or ""):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        session = LiveSession(websocket, settings, app.state.ports_factory)
+        await session.run()
 
     return app
