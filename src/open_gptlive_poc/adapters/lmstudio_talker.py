@@ -22,12 +22,14 @@ class LMStudioTalker(Talker):
         base_url: str,
         model: str,
         *,
+        reasoning_effort: str = "none",
         transport: Transport | None = None,
         stream_transport: StreamTransport | None = None,
     ) -> None:
         self.native = base_url.rstrip("/").endswith("/api/v1")
         self.url = base_url.rstrip("/") + ("/chat" if self.native else "/chat/completions")
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self.transport = transport or _post_json
         self.stream_transport = stream_transport
 
@@ -38,6 +40,8 @@ class LMStudioTalker(Talker):
             "messages": _messages(request),
             "stream": False,
         }
+        if not self.native:
+            payload["reasoning_effort"] = self.reasoning_effort
         body = json.dumps(payload).encode("utf-8")
         raw = await asyncio.to_thread(self.transport, self.url, body, {"Content-Type": "application/json"})
         try:
@@ -54,6 +58,7 @@ class LMStudioTalker(Talker):
         payload = _native_payload(request, self.model) if self.native else {
             "model": self.model,
             "messages": _messages(request),
+            "reasoning_effort": self.reasoning_effort,
         }
         payload["stream"] = True
         if self.stream_transport is not None:

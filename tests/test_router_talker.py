@@ -100,6 +100,7 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "The order shipped.")
         self.assertEqual(captured["url"], "http://localhost:1234/v1/chat/completions")
         self.assertEqual(captured["body"]["model"], "local-model")
+        self.assertEqual(captured["body"]["reasoning_effort"], "none")
         self.assertEqual([item["role"] for item in captured["body"]["messages"]], ["system", "system", "user", "assistant", "user"])
         self.assertEqual(captured["headers"]["Content-Type"], "application/json")
 

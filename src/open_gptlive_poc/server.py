@@ -14,7 +14,11 @@ router = GLiNERRouter(
     device=settings.gliner_device,
     task_threshold=settings.gliner_task_threshold,
 )
-talker = LMStudioTalker(settings.lm_studio_base_url, settings.lm_studio_model)
+talker = LMStudioTalker(
+    settings.lm_studio_base_url,
+    settings.lm_studio_model,
+    reasoning_effort=settings.lm_studio_reasoning_effort,
+)
 
 
 def ports_factory() -> Ports:

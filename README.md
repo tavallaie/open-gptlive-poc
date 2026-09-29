@@ -83,6 +83,7 @@ curl -N http://localhost:1234/v1/chat/completions \
       {"role": "system", "content": "You answer only in rhymes."},
       {"role": "user", "content": "What is your favorite color?"}
     ],
+    "reasoning_effort": "none",
     "stream": true
   }'
 ```

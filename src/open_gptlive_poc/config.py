@@ -25,6 +25,7 @@ class Settings:
     gliner_device: str = "cpu"
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     lm_studio_model: str = "local-model"
+    lm_studio_reasoning_effort: str = "none"
     supertonic_voice_map: dict[str, str] | None = None
     tasks_url: str = "http://127.0.0.1:8080/tasks"
     vad_pause_ms: int = 700
@@ -49,6 +50,7 @@ class Settings:
             gliner_device=raw.get("gliner_device", defaults.gliner_device),
             lm_studio_base_url=raw.get("lm_studio_base_url", defaults.lm_studio_base_url),
             lm_studio_model=raw.get("lm_studio_model", defaults.lm_studio_model),
+            lm_studio_reasoning_effort=raw.get("lm_studio_reasoning_effort", defaults.lm_studio_reasoning_effort),
             supertonic_voice_map=_voice_map(raw.get("supertonic_voice_map")),
             tasks_url=raw.get("tasks_url", defaults.tasks_url),
             vad_pause_ms=_integer(raw.get("vad_pause_ms"), defaults.vad_pause_ms, "GPTLIVE_VAD_PAUSE_MS"),
