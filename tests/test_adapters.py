@@ -1,0 +1,72 @@
+import struct
+import tempfile
+import unittest
+from pathlib import Path
+
+from open_gptlive_poc.adapters.silero_vad import SileroVAD, resample_pcm16le
+from open_gptlive_poc.adapters.whisper_ctc import WhisperCTC
+
+
+class FakeLogits:
+    def argmax(self, dim: int):
+        return [[1, 2]]
+
+
+class FakeModel:
+    logits = FakeLogits()
+
+    def __call__(self, **inputs):
+        return self
+
+
+class FakeProcessor:
+    def __call__(self, samples, sampling_rate, return_tensors):
+        return {"input_values": samples}
+
+    def batch_decode(self, token_ids, skip_special_tokens):
+        return ["hello local model"]
+
+
+class AdapterTests(unittest.TestCase):
+    def test_resampler_changes_24khz_to_16khz(self) -> None:
+        source = struct.pack("<3h", 0, 1000, 2000)
+
+        result = resample_pcm16le(source, 24_000, 16_000)
+
+        self.assertEqual(len(result), 4)
+        self.assertEqual(struct.unpack("<2h", result), (0, 1500))
+
+    def test_vad_emits_boundaries_and_honors_mute(self) -> None:
+        with tempfile.NamedTemporaryFile() as model_file:
+            scores = iter([0.9] + [0.1] * 22)
+            vad = SileroVAD(model_file.name, pause_ms=700, infer=lambda samples: next(scores))
+            chunk = b"\x00\x00" * 768
+
+            events = vad.append_audio(chunk * 23)
+            vad.set_muted(True)
+            self.assertEqual(vad.append_audio(chunk), [])
+
+        self.assertEqual([event.type for event in events], ["speech_started", "speech_stopped"])
+        self.assertEqual(events[0].offset_ms, 0)
+
+    def test_whisper_ctc_returns_text_and_session_timestamps(self) -> None:
+        with tempfile.NamedTemporaryFile() as model_file:
+            asr = WhisperCTC(model_file.name, processor=FakeProcessor(), model=FakeModel())
+            result = asr.transcribe(b"\x00\x00" * 24_000, start_ms=250)
+
+        self.assertEqual(result.text, "hello local model")
+        self.assertEqual((result.start_ms, result.end_ms), (250, 1250))
+
+    def test_adapters_reject_odd_pcm16_data(self) -> None:
+        with tempfile.NamedTemporaryFile() as model_file:
+            vad = SileroVAD(model_file.name, infer=lambda samples: 0.0)
+            asr = WhisperCTC(model_file.name, processor=FakeProcessor(), model=FakeModel())
+
+            with self.assertRaises(ValueError):
+                vad.append_audio(b"odd")
+            with self.assertRaises(ValueError):
+                asr.transcribe(b"odd", start_ms=0)
+
+
+if __name__ == "__main__":
+    unittest.main()
