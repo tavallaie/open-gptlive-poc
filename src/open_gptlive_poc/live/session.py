@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import time
+from base64 import b64decode
+from binascii import Error as Base64Error
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
@@ -44,6 +46,8 @@ class SessionState:
     commentary: list[str] = field(default_factory=list)
     transcripts: list[str] = field(default_factory=list)
     history: list[TranscriptTurn] = field(default_factory=list)
+    speech_audio: bytearray = field(default_factory=bytearray)
+    speech_start_ms: int = 0
     delegation_ids: set[str] = field(default_factory=set)
 
 
@@ -113,7 +117,7 @@ class LiveSession:
         try:
             if event.type == "session.input_audio.append":
                 if not self.state.muted:
-                    await self._call_port("append_audio", event.data["audio"])
+                    await self._append_audio(event.data["audio"])
                 return
             if event.type == "session.input_audio.mute":
                 self.state.muted = True
@@ -146,6 +150,41 @@ class LiveSession:
                 await self._ack("session.updated", event)
         except Exception:
             await self._send_error("internal_error", "Session adapter failed")
+
+    async def _append_audio(self, encoded_audio: str) -> None:
+        """Decode one client audio event and finish turns at VAD boundaries."""
+        try:
+            pcm16le = b64decode(encoded_audio, validate=True)
+        except (Base64Error, ValueError) as exc:
+            raise ValueError("audio must be valid base64") from exc
+        if self.ports is None:
+            return
+        self.state.speech_audio.extend(pcm16le)
+        events = self.ports.vad.append_audio(pcm16le)
+        for event in events:
+            if event.type == "speech_started":
+                self.state.speech_start_ms = event.offset_ms
+            elif event.type == "speech_stopped":
+                await self._finish_turn(event.offset_ms)
+
+    async def _finish_turn(self, end_ms: int) -> None:
+        """Transcribe the buffered speech and route its completed turn."""
+        if not self.state.speech_audio:
+            return
+        try:
+            transcript = self.ports.asr.transcribe(bytes(self.state.speech_audio), self.state.speech_start_ms)
+            self.state.speech_audio.clear()
+            if not transcript.text:
+                return
+            await self._send(
+                ServerEvent(
+                    "session.input_transcript.delta",
+                    {"text": transcript.text, "start_ms": transcript.start_ms, "end_ms": min(transcript.end_ms, end_ms)},
+                )
+            )
+            await self.handle_transcript(transcript.text)
+        finally:
+            self.state.speech_audio.clear()
 
     async def handle_transcript(self, transcript: str) -> None:
         """Route one completed ASR transcript through the session adapters."""
