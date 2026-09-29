@@ -2,6 +2,7 @@
 
 from .adapters.faster_whisper import FasterWhisperASR
 from .adapters.gliner_router import GLiNERRouter
+from .adapters.http_tasks import HttpTasks
 from .adapters.lmstudio_talker import LMStudioTalker
 from .adapters.silero_vad import SileroVAD
 from .app import Ports, create_app
@@ -29,7 +30,7 @@ def ports_factory() -> Ports:
         router=router,
         talker=talker,
         speaker=object(),
-        tasks=object(),
+        tasks=HttpTasks(settings.tasks_url),
     )
 
 

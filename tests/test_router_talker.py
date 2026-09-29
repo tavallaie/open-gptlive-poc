@@ -2,6 +2,7 @@ import json
 import unittest
 
 from open_gptlive_poc.adapters.gliner_router import GLiNERRouter
+from open_gptlive_poc.adapters.http_tasks import HttpTasks
 from open_gptlive_poc.adapters.lmstudio_talker import LMStudioTalker
 from open_gptlive_poc.ports.talker import TalkRequest, TranscriptTurn
 
@@ -109,6 +110,25 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "invalid chat response"):
             await talker.reply(TalkRequest("Hello"))
+
+
+class TasksTests(unittest.IsolatedAsyncioTestCase):
+    async def test_posts_transcript_and_labels(self):
+        captured = {}
+
+        def transport(url, body, headers):
+            captured.update(url=url, body=json.loads(body), headers=headers)
+            return b"{}"
+
+        delegation_id = await HttpTasks("http://tasks.local/delegations", transport=transport).create(
+            "sess_1", "Do it", {"kind": "task", "needs_task": 0.9}
+        )
+
+        self.assertTrue(delegation_id.startswith("item_"))
+        self.assertEqual(captured["url"], "http://tasks.local/delegations")
+        self.assertEqual(captured["body"]["session_id"], "sess_1")
+        self.assertEqual(captured["body"]["transcript"], "Do it")
+        self.assertEqual(captured["body"]["gliner"]["needs_task"], 0.9)
 
 
 if __name__ == "__main__":
