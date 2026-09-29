@@ -18,5 +18,16 @@ Add these Space secrets:
   `wss://example.com/v1/live/sessions`.
 - `GPTLIVE_DEMO_TOKEN`: the server bearer token.
 
-If no endpoint is configured, the demo runs in local preview mode and returns
-the recorded input as output audio. The token is never rendered in the UI.
+For local testing from this repository:
+
+```bash
+set -a
+source .env
+set +a
+uv run --with uvicorn uvicorn --app-dir src open_gptlive_poc.server:app
+```
+
+The current server slice verifies session, audio, and close events. It will
+return transcript and output-audio events after the ASR, GLiNER, LM Studio,
+and TTS adapters are wired into the session pipeline. The token is never
+rendered in the UI.

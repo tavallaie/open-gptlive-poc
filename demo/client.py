@@ -6,13 +6,17 @@ import asyncio
 import base64
 import json
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from dotenv import load_dotenv
 
 
 TARGET_SAMPLE_RATE = 24_000
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 @dataclass(frozen=True, slots=True)
