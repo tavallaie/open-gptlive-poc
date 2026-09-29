@@ -59,13 +59,8 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 Configuration is loaded from `GPTLIVE_*` environment variables. Required
 credentials and local model paths must remain outside the repository.
 
-Example local model configuration:
-
-```bash
-export GPTLIVE_SILERO_MODEL_PATH=/home/ali/Models/silero_vad.onnx
-export GPTLIVE_WHISPER_MODEL_PATH=/home/ali/Models/hub/models--deepdml--faster-whisper-large-v3-turbo-ct2/snapshots/4df90f75321148c3a29a9e2351b7ddf8f5b115a8
-export GPTLIVE_GLINER_MODEL_PATH=/home/ali/Models/hub/models--fastino--GLiNER2.5-Decide/snapshots/<snapshot>
-```
+Set the required model paths in an untracked local `.env` file or in the
+deployment environment. Do not add machine-specific paths to the repository.
 
 The router uses [fastino/GLiNER2.5-Decide](https://huggingface.co/fastino/GLiNER2.5-Decide)
 for local transcript classification. Keep its Hugging Face snapshot outside the
