@@ -2,13 +2,8 @@
 
 from typing import Protocol
 
-
-class VAD(Protocol):
-    """Voice activity detection port."""
-
-
-class ASR(Protocol):
-    """Automatic speech recognition port."""
+from .asr import ASR, Transcript
+from .vad import VAD, VADEvent
 
 
 class Router(Protocol):
@@ -25,3 +20,6 @@ class Speaker(Protocol):
 
 class Tasks(Protocol):
     """Asynchronous task delegation port."""
+
+
+__all__ = ["ASR", "Router", "Speaker", "Tasks", "Talker", "Transcript", "VAD", "VADEvent"]

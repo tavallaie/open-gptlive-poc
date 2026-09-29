@@ -8,7 +8,7 @@ VALID_ENV = {
     "GPTLIVE_BEARER_TOKEN": "test-token",
     "GPTLIVE_SILERO_MODEL_PATH": "/models/silero.onnx",
     "GPTLIVE_WHISPER_MODEL_PATH": "/models/whisper",
-    "GPTLIVE_LAYA_CHECKPOINT": "/models/laya",
+    "GPTLIVE_GLINER_MODEL_PATH": "/models/GLiNER2.5-Decide",
 }
 
 
@@ -30,7 +30,7 @@ class SettingsTests(unittest.TestCase):
                 Settings.from_env({})
 
     def test_invalid_threshold_is_rejected(self) -> None:
-        environment = {**VALID_ENV, "GPTLIVE_LAYA_TASK_THRESHOLD": "2"}
+        environment = {**VALID_ENV, "GPTLIVE_GLINER_TASK_THRESHOLD": "2"}
 
         with self.assertRaisesRegex(ConfigurationError, "between 0 and 1"):
             Settings.from_env(environment)
