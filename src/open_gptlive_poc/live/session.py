@@ -60,7 +60,7 @@ class LiveSession:
         while not self.state.closing:
             try:
                 raw = await self.websocket.receive_text()
-            except Exception:
+            except (ConnectionError, EOFError):
                 await self.close("connection_lost")
                 return
 
@@ -93,20 +93,17 @@ class LiveSession:
             await self._send_error("internal_error", "Unable to initialize session adapters")
 
         self.state.started = True
-        await self._send(
-            ServerEvent(
-                "session.started",
-                {
-                    "session": {
-                        "id": self.state.session_id,
-                        "model": event.data["model"],
-                        "delegation": {"type": "client"},
-                        "audio": {"format": {"encoding": "pcm16le", "sample_rate": 24000, "channels": 1}},
-                    }
-                },
-                event_id=event.event_id,
-            )
-        )
+        data = {
+            "session": {
+                "id": self.state.session_id,
+                "model": event.data["model"],
+                "delegation": {"type": "client"},
+                "audio": {"format": {"encoding": "pcm16le", "sample_rate": 24000, "channels": 1}},
+            }
+        }
+        if event.event_id is not None:
+            data["client_event_id"] = event.event_id
+        await self._send(ServerEvent("session.started", data))
 
     async def _handle(self, event: ClientEvent) -> None:
         """Apply a validated event to this session's isolated state."""

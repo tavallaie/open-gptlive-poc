@@ -3,8 +3,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 
-from fastapi import FastAPI
-from fastapi import WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from .config import Settings
 from .ports import ASR, Router, Speaker, Tasks, Talker, VAD
@@ -24,14 +23,13 @@ class Ports:
 
 def create_app(
     settings: Settings,
-    ports: Ports | None = None,
     ports_factory: Callable[[], Ports | None] | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with validated settings and injected ports."""
     settings.validate()
     app = FastAPI(title="GPT-Live server")
     app.state.settings = settings
-    app.state.ports_factory = ports_factory or (lambda: ports)
+    app.state.ports_factory = ports_factory or (lambda: None)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -49,6 +47,9 @@ def create_app(
             return
         await websocket.accept()
         session = LiveSession(websocket, settings, app.state.ports_factory)
-        await session.run()
+        try:
+            await session.run()
+        except WebSocketDisconnect:
+            await session.close("connection_lost")
 
     return app

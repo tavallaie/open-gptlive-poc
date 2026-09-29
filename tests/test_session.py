@@ -46,6 +46,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(websocket.sent[1]["client_event_id"], "instructions")
+        self.assertEqual(websocket.sent[0]["client_event_id"], "start")
         self.assertTrue(websocket.closed)
         self.assertEqual(session.state.instructions, ["Be concise."])
 
