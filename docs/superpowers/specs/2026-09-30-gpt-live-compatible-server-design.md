@@ -30,7 +30,7 @@ Sources for the public contract: OpenAI GPT-Live getting started, delegation, se
 | Transport | WebSocket first |
 | VAD | Silero |
 | ASR | Faster-Whisper, weights already on the machine |
-| Router | Laya typed decisions |
+| Router | GLiNER2.5-Decide typed decisions |
 | Conversational text | LM Studio `/v1/chat/completions` |
 | TTS | Supertonic, resampled to 24 kHz |
 | Tasks | Async HTTP POST out, callback in |
@@ -56,7 +56,7 @@ Out of slice 1: WebRTC (`POST /v1/live/sessions` with SDP), SIP, sideband attach
 
 ## Session object
 
-One WebSocket is one session. One session has one VAD, ASR, Laya, Talker, Speaker chain.
+One WebSocket is one session. One session has one VAD, ASR, GLiNER, Talker, Speaker chain.
 
 Fields locked at `session.start`:
 
@@ -73,7 +73,7 @@ Default voice mapping until a full table exists: Live `marin` maps to Supertonic
 ## Lifecycle
 
 ```
-client                    this process                 LM Studio / Laya / other system
+client                    this process                 LM Studio / GLiNER / other system
   |  session.start              |
   |---------------------------->|  bind adapters for this session
   |  session.started            |
@@ -84,7 +84,7 @@ client                    this process                 LM Studio / Laya / other 
   |  session.input_transcript   |
   |         .delta              |
   |<----------------------------|
-  |                             |  Laya on that transcript
+  |                             |  GLiNER2.5-Decide on that transcript
   |                             |-- talk --> LM Studio chat
   |                             |-- task --> HTTP POST (do not wait)
   |  session.delegation.created |            (if task)
@@ -143,7 +143,7 @@ Each append is a plain string, max 500 tokens, with `delegation_id` (`null` mean
 
 ## Internal ports
 
-The session loop does not import Silero, Whisper, Laya, LM Studio, or Supertonic by name. It calls six ports. Adapters wrap the real libraries.
+The session loop does not import Silero, Whisper, GLiNER, LM Studio, or Supertonic by name. It calls six ports. Adapters wrap the real libraries.
 
 ```
 PCM in → VAD → ASR → Router → Talker
@@ -155,7 +155,7 @@ PCM in → VAD → ASR → Router → Talker
 |---|---|---|
 | VAD | Speech start/stop on PCM frames | Silero |
 | ASR | Turn PCM → transcript + timestamps | Faster-Whisper |
-| Router | Transcript → talk / task / both | Laya |
+| Router | Transcript → talk / task / both | GLiNER2.5-Decide |
 | Talker | History + instructions → reply text | LM Studio |
 | Speaker | Text → 24 kHz PCM16LE chunks | Supertonic then resample |
 | Tasks | Fire-and-forget POST; later callback | HTTP client + callback route |
@@ -184,9 +184,9 @@ The server emits `session.input_transcript.delta` from that result.
 
 Weights load from a local path in config. No cloud ASR.
 
-### Router (Laya)
+### Router (GLiNER2.5-Decide)
 
-One decision per turn. Laya does not write speech.
+One decision per turn. GLiNER2.5-Decide does not write speech; it classifies the transcript.
 
 First question set:
 
@@ -201,7 +201,7 @@ Rules:
 - `needs_task` at or above threshold → Tasks POST; Talker also runs if `kind` is `chat` or the decision says both
 - Default threshold is `0.5`, overridable in config
 
-The Laya question JSON lives in one module. Change labels there, not in the session loop.
+The GLiNER classification labels live in one module. Change labels there, not in the session loop.
 
 ### Talker (LM Studio)
 
@@ -213,7 +213,7 @@ Output is plain reply text.
 
 If LM Studio fails, emit `error` with `internal_error` and skip that turn's speech. Do not kill the session.
 
-Talker does not send the task body. Tasks send transcript and Laya labels as-is.
+Talker does not send the task body. Tasks send transcript and GLiNER labels as-is.
 
 ### Speaker (Supertonic)
 
@@ -242,7 +242,7 @@ Content-Type: application/json
   "delegation_id": "item_...",
   "transcript": "...",
   "kind": "task" | "function_call",
-  "laya": { "needs_task": 0.91, "kind": "task" }
+  "gliner": { "needs_task": 0.91, "kind": "task" }
 }
 ```
 
@@ -288,7 +288,7 @@ Envelope:
 | Change of locked start field | `immutable_field_update` | stays up |
 | Audio not even PCM16 bytes | `invalid_audio` | stays up |
 | Command after close started | `session_closed` | ignore work |
-| LM Studio / Whisper / Laya / TTS adapter fails | `internal_error` | stays up; skip that turn's speech |
+| LM Studio / Whisper / GLiNER / TTS adapter fails | `internal_error` | stays up; skip that turn's speech |
 | Callback for unknown id | HTTP 404; no Live `error` | — |
 
 Set `client_event_id` only when the failure maps to one client `event_id`. Adapter failures omit it.
@@ -330,11 +330,11 @@ If the socket dies first, try to emit `session.closed` while the write path is a
 
 `session.closed` repeats the final `usage.seconds`.
 
-LM Studio and Laya token counts stay in those adapters. They are not in the Live usage object.
+LM Studio and GLiNER token counts stay in those adapters. They are not in the Live usage object.
 
 ## Concurrency
 
-- One VAD + ASR + Laya + Talker + Speaker chain per session
+- One VAD + ASR + GLiNER + Talker + Speaker chain per session
 - Many sessions per process
 - Task callbacks may arrive on any worker; they join the session Speaker queue by `delegation_id`
 - One Speaker utterance at a time per session
@@ -345,12 +345,12 @@ Load from environment or a local file. Do not commit secrets.
 
 - Live listen host, port, bearer token
 - Paths for Silero and Faster-Whisper weights
-- Laya checkpoint and device
+- GLiNER model path and device
 - LM Studio base URL and model
 - Supertonic voice map
 - `TASKS_URL`
 - VAD pause ms
-- Laya `needs_task` threshold
+- GLiNER `needs_task` threshold
 - Max session duration (default 3600 s)
 
 ## Package layout (when we build)
@@ -366,20 +366,20 @@ Keep the current Python 3.14 package. Add modules under `src/open_gptlive_poc/`:
 | `ports/` | Port types only |
 | `adapters/silero_vad.py` | VAD |
 | `adapters/faster_whisper.py` | ASR |
-| `adapters/laya_router.py` | Router |
+| `adapters/gliner_router.py` | Router |
 | `adapters/lmstudio_talker.py` | Talker |
 | `adapters/supertonic_speaker.py` | Speaker |
 | `adapters/http_tasks.py` | Tasks |
 
-Dependencies need user approval before add. Expected later: a WebSocket server, ONNX runtime, `faster-whisper`, `supertonic`, Laya, Silero, HTTP client.
+Dependencies need user approval before add. Expected later: a WebSocket server, ONNX runtime, `faster-whisper`, `gliner2`, `supertonic`, Silero, HTTP client.
 
 ## Tests for slice 1
 
 Use fake ports in unit tests. Do not require GPU or LM Studio for CI.
 
 1. `session.start` → `session.started` with resolved config.
-2. Pause → fake ASR text → Laya talk → output transcript and audio on the socket.
-3. Laya task → outbound POST fired, `delegation.created` emitted, callback → more audio.
+2. Pause → fake ASR text → GLiNER talk → output transcript and audio on the socket.
+3. GLiNER task → outbound POST fired, `delegation.created` emitted, callback → more audio.
 4. Barge-in: `speech_started` during TTS stops further `output_audio.delta`.
 5. Bad JSON and immutable update emit `error` and leave the session up.
 6. `session.close` → `session.closed` with `reason: close_requested` and `usage.seconds`.
@@ -390,7 +390,7 @@ WebRTC SDP, SIP, sideband, fork, store, recording, Responses envelopes, polling 
 
 ## Later detail (explicitly deferred)
 
-- Exact Laya question JSON and threshold tuning
+- Exact GLiNER labels and threshold tuning
 - Faster-Whisper package and weight path
 - Full Live voice → Supertonic style table
 - LM Studio system prompt template
@@ -401,6 +401,6 @@ WebRTC SDP, SIP, sideband, fork, store, recording, Responses envelopes, polling 
 
 1. Speak the Live protocol, not the Realtime (`/v1/realtime`) protocol.
 2. One process with ports, WebSocket first.
-3. Laya only classifies. LM Studio writes chitchat. The other system writes task results. Supertonic only synthesizes.
+3. GLiNER2.5-Decide only classifies. LM Studio writes chitchat. The other system writes task results. Supertonic only synthesizes.
 4. Tasks are async. Callback only in slice 1.
 5. Adapter failure skips the turn. It does not kill the session.

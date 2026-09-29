@@ -21,14 +21,14 @@ class Settings:
     bearer_token: str | None = None
     silero_model_path: str | None = None
     whisper_model_path: str | None = None
-    laya_checkpoint: str | None = None
-    laya_device: str = "cpu"
+    gliner_model_path: str | None = None
+    gliner_device: str = "cpu"
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     lm_studio_model: str = "local-model"
     supertonic_voice_map: dict[str, str] | None = None
     tasks_url: str = "http://127.0.0.1:8080/tasks"
     vad_pause_ms: int = 700
-    laya_task_threshold: float = 0.5
+    gliner_task_threshold: float = 0.5
     max_session_duration_s: int = 3600
 
     @classmethod
@@ -45,14 +45,14 @@ class Settings:
             bearer_token=raw.get("bearer_token") or None,
             silero_model_path=raw.get("silero_model_path") or None,
             whisper_model_path=raw.get("whisper_model_path") or None,
-            laya_checkpoint=raw.get("laya_checkpoint") or None,
-            laya_device=raw.get("laya_device", defaults.laya_device),
+            gliner_model_path=raw.get("gliner_model_path") or None,
+            gliner_device=raw.get("gliner_device", defaults.gliner_device),
             lm_studio_base_url=raw.get("lm_studio_base_url", defaults.lm_studio_base_url),
             lm_studio_model=raw.get("lm_studio_model", defaults.lm_studio_model),
             supertonic_voice_map=_voice_map(raw.get("supertonic_voice_map")),
             tasks_url=raw.get("tasks_url", defaults.tasks_url),
             vad_pause_ms=_integer(raw.get("vad_pause_ms"), defaults.vad_pause_ms, "GPTLIVE_VAD_PAUSE_MS"),
-            laya_task_threshold=_number(raw.get("laya_task_threshold"), defaults.laya_task_threshold, "GPTLIVE_LAYA_TASK_THRESHOLD"),
+            gliner_task_threshold=_number(raw.get("gliner_task_threshold"), defaults.gliner_task_threshold, "GPTLIVE_GLINER_TASK_THRESHOLD"),
             max_session_duration_s=_integer(raw.get("max_session_duration_s"), defaults.max_session_duration_s, "GPTLIVE_MAX_SESSION_DURATION_S"),
         )
         return settings.validate()
@@ -63,7 +63,7 @@ class Settings:
             "GPTLIVE_BEARER_TOKEN": self.bearer_token,
             "GPTLIVE_SILERO_MODEL_PATH": self.silero_model_path,
             "GPTLIVE_WHISPER_MODEL_PATH": self.whisper_model_path,
-            "GPTLIVE_LAYA_CHECKPOINT": self.laya_checkpoint,
+            "GPTLIVE_GLINER_MODEL_PATH": self.gliner_model_path,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -72,8 +72,8 @@ class Settings:
             raise ConfigurationError("GPTLIVE_PORT must be between 1 and 65535")
         if self.vad_pause_ms < 0:
             raise ConfigurationError("GPTLIVE_VAD_PAUSE_MS must not be negative")
-        if not 0 <= self.laya_task_threshold <= 1:
-            raise ConfigurationError("GPTLIVE_LAYA_TASK_THRESHOLD must be between 0 and 1")
+        if not 0 <= self.gliner_task_threshold <= 1:
+            raise ConfigurationError("GPTLIVE_GLINER_TASK_THRESHOLD must be between 0 and 1")
         if self.max_session_duration_s <= 0:
             raise ConfigurationError("GPTLIVE_MAX_SESSION_DURATION_S must be positive")
         return self

@@ -89,7 +89,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
             bearer_token="test-token",
             silero_model_path="silero",
             whisper_model_path="whisper",
-            laya_checkpoint="laya",
+            gliner_model_path="gliner",
         )
 
 

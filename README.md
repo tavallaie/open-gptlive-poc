@@ -19,7 +19,7 @@ flowchart LR
     Session --> Tasks[Tasks port]
     VAD --> Silero[Silero adapter]
     ASR --> Whisper[Faster-Whisper adapter]
-    Router --> Laya[Laya adapter]
+    Router --> GLiNER[GLiNER2.5-Decide adapter]
     Talker --> LM[LM Studio adapter]
     Speaker --> Supertonic[Supertonic adapter]
     Tasks --> HTTP[Async task HTTP adapter]
@@ -59,9 +59,11 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 Configuration is loaded from `GPTLIVE_*` environment variables. Required
 credentials and local model paths must remain outside the repository.
 
-Example local model configuration:
+Set the required model paths in an untracked local `.env` file or in the
+deployment environment. Do not add machine-specific paths to the repository.
 
-```bash
-export GPTLIVE_SILERO_MODEL_PATH=/home/ali/Models/silero_vad.onnx
-export GPTLIVE_WHISPER_MODEL_PATH=/home/ali/Models/hub/models--deepdml--faster-whisper-large-v3-turbo-ct2/snapshots/4df90f75321148c3a29a9e2351b7ddf8f5b115a8
-```
+The router uses [fastino/GLiNER2.5-Decide](https://huggingface.co/fastino/GLiNER2.5-Decide)
+for local transcript classification. Keep its Hugging Face snapshot outside the
+repository and point `GPTLIVE_GLINER_MODEL_PATH` at that snapshot. The model is
+English-only; use the multilingual GLiNER2.5 variant if multilingual routing is
+required.
