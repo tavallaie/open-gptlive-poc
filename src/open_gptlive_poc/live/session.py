@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from ..config import Settings
+from ..ports.router import RouteDecision
+from ..ports.talker import TalkRequest, TranscriptTurn
 from .protocol import ClientEvent, ProtocolError, ServerEvent, parse_client_event
 
 if TYPE_CHECKING:
@@ -41,6 +43,7 @@ class SessionState:
     thinking: list[str] = field(default_factory=list)
     commentary: list[str] = field(default_factory=list)
     transcripts: list[str] = field(default_factory=list)
+    history: list[TranscriptTurn] = field(default_factory=list)
     delegation_ids: set[str] = field(default_factory=set)
 
 
@@ -143,6 +146,51 @@ class LiveSession:
                 await self._ack("session.updated", event)
         except Exception:
             await self._send_error("internal_error", "Session adapter failed")
+
+    async def handle_transcript(self, transcript: str) -> None:
+        """Route one completed ASR transcript through the session adapters."""
+        if not transcript.strip() or self.ports is None:
+            return
+        try:
+            decision = self.ports.router.classify(transcript)
+            if decision.talk:
+                reply = await self.ports.talker.reply(
+                    TalkRequest(
+                        transcript=transcript,
+                        instructions=tuple(self.state.instructions),
+                        thinking=tuple(self.state.thinking),
+                        history=tuple(self.state.history),
+                    )
+                )
+                self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
+                self.state.transcripts.extend((transcript, reply))
+                await self._send(ServerEvent("session.output_transcript.delta", {"text": reply}))
+            else:
+                self.state.history.append(TranscriptTurn("user", transcript))
+                self.state.transcripts.append(transcript)
+            if decision.task:
+                delegation_id = await self._create_task(transcript, decision)
+                self.state.delegation_ids.add(delegation_id)
+                await self._send(
+                    ServerEvent(
+                        "session.delegation.created",
+                        {"delegation_id": delegation_id, "target": "client"},
+                    )
+                )
+        except Exception:
+            await self._send_error("internal_error", "Session adapter failed")
+
+    async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
+        """Create one outbound task while preserving the router labels."""
+        method = getattr(self.ports.tasks, "create", None)
+        if method is None:
+            raise RuntimeError("task adapter is not configured")
+        result = method(self.state.session_id, transcript, dict(decision.labels))
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, str) or not result:
+            raise RuntimeError("task adapter returned an invalid delegation id")
+        return result
 
     async def _call_port(self, method_name: str, *args: Any) -> None:
         """Call an optional port method without coupling this layer to adapters."""

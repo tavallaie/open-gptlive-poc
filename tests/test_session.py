@@ -2,6 +2,8 @@ import json
 import unittest
 
 from open_gptlive_poc.live.session import LiveSession
+from open_gptlive_poc.ports.router import RouteDecision
+from open_gptlive_poc.ports.talker import TalkRequest
 
 
 class FakeWebSocket:
@@ -23,6 +25,51 @@ class FakeWebSocket:
 
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transcript_talk_task_and_both_paths(self) -> None:
+        class Router:
+            def __init__(self, decision):
+                self.decision = decision
+
+            def classify(self, transcript):
+                return self.decision
+
+        class Talker:
+            async def reply(self, request: TalkRequest) -> str:
+                self.request = request
+                return "Sure."
+
+        class Tasks:
+            async def create(self, session_id, transcript, labels):
+                self.request = (session_id, transcript, labels)
+                return "item_task"
+
+        talker = Talker()
+        tasks = Tasks()
+        websocket = FakeWebSocket()
+        session = LiveSession(websocket, self._settings(), lambda: None)
+        session.ports = type("Ports", (), {"router": Router(RouteDecision("", 0.9, "task", True, {"kind": "task"})), "talker": talker, "tasks": tasks, "vad": object()})()
+
+        await session.handle_transcript("Do it")
+
+        self.assertEqual(websocket.sent[0]["type"], "session.output_transcript.delta")
+        self.assertEqual(websocket.sent[1]["type"], "session.delegation.created")
+        self.assertEqual(tasks.request[1:], ("Do it", {"kind": "task"}))
+        self.assertEqual(talker.request.transcript, "Do it")
+
+    async def test_transcript_adapter_failure_is_recoverable(self) -> None:
+        class Router:
+            def classify(self, transcript):
+                raise RuntimeError("broken")
+
+        websocket = FakeWebSocket()
+        session = LiveSession(websocket, self._settings(), lambda: None)
+        session.ports = type("Ports", (), {"router": Router(), "talker": object(), "tasks": object(), "vad": object()})()
+
+        await session.handle_transcript("Hello")
+
+        self.assertEqual(websocket.sent[0]["type"], "error")
+        self.assertEqual(websocket.sent[0]["error"]["code"], "internal_error")
+
     async def test_start_commands_and_close(self) -> None:
         websocket = FakeWebSocket(
             {"type": "session.start", "event_id": "start", "model": "gpt-live-1"},

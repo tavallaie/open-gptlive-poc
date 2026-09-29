@@ -15,5 +15,7 @@ class Speaker(Protocol):
 class Tasks(Protocol):
     """Asynchronous task delegation port."""
 
+    async def create(self, session_id: str, transcript: str, labels: dict[str, object]) -> str: ...
+
 
 __all__ = ["ASR", "RouteDecision", "Router", "Speaker", "TalkRequest", "Tasks", "Talker", "Transcript", "TranscriptTurn", "VAD", "VADEvent"]
