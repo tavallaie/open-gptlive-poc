@@ -67,3 +67,7 @@ for local transcript classification. Keep its Hugging Face snapshot outside the
 repository and point `GPTLIVE_GLINER_MODEL_PATH` at that snapshot. The model is
 English-only; use the multilingual GLiNER2.5 variant if multilingual routing is
 required.
+
+LM Studio uses its native `/api/v1/chat` endpoint by default. Set
+`GPTLIVE_LM_STUDIO_BASE_URL` to a `/v1` base URL to use the compatible
+`/v1/chat/completions` endpoint instead.
