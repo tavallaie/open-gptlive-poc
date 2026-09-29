@@ -19,7 +19,7 @@ flowchart LR
     Session --> Tasks[Tasks port]
     VAD --> Silero[Silero adapter]
     ASR --> Whisper[Faster-Whisper adapter]
-    Router --> Laya[Laya adapter]
+    Router --> GLiNER[GLiNER2.5-Decide adapter]
     Talker --> LM[LM Studio adapter]
     Speaker --> Supertonic[Supertonic adapter]
     Tasks --> HTTP[Async task HTTP adapter]
@@ -64,4 +64,11 @@ Example local model configuration:
 ```bash
 export GPTLIVE_SILERO_MODEL_PATH=/home/ali/Models/silero_vad.onnx
 export GPTLIVE_WHISPER_MODEL_PATH=/home/ali/Models/hub/models--deepdml--faster-whisper-large-v3-turbo-ct2/snapshots/4df90f75321148c3a29a9e2351b7ddf8f5b115a8
+export GPTLIVE_GLINER_MODEL_PATH=/home/ali/Models/hub/models--fastino--GLiNER2.5-Decide/snapshots/<snapshot>
 ```
+
+The router uses [fastino/GLiNER2.5-Decide](https://huggingface.co/fastino/GLiNER2.5-Decide)
+for local transcript classification. Keep its Hugging Face snapshot outside the
+repository and point `GPTLIVE_GLINER_MODEL_PATH` at that snapshot. The model is
+English-only; use the multilingual GLiNER2.5 variant if multilingual routing is
+required.
