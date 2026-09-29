@@ -1,6 +1,7 @@
 """Conversational text generation port."""
 
 from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
 from typing import Literal, Protocol, Sequence
 
 
@@ -26,3 +27,5 @@ class Talker(Protocol):
     """Generate a plain conversational reply."""
 
     async def reply(self, request: TalkRequest) -> str: ...
+
+    def stream_reply(self, request: TalkRequest) -> AsyncIterator[str]: ...

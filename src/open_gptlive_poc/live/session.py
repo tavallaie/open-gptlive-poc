@@ -193,17 +193,15 @@ class LiveSession:
         try:
             decision = self.ports.router.classify(transcript)
             if decision.talk:
-                reply = await self.ports.talker.reply(
-                    TalkRequest(
-                        transcript=transcript,
-                        instructions=tuple(self.state.instructions),
-                        thinking=tuple(self.state.thinking),
-                        history=tuple(self.state.history),
-                    )
+                request = TalkRequest(
+                    transcript=transcript,
+                    instructions=tuple(self.state.instructions),
+                    thinking=tuple(self.state.thinking),
+                    history=tuple(self.state.history),
                 )
+                reply = await self._reply(request)
                 self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
                 self.state.transcripts.extend((transcript, reply))
-                await self._send(ServerEvent("session.output_transcript.delta", {"text": reply}))
             else:
                 self.state.history.append(TranscriptTurn("user", transcript))
                 self.state.transcripts.append(transcript)
@@ -218,6 +216,19 @@ class LiveSession:
                 )
         except Exception:
             await self._send_error("internal_error", "Session adapter failed")
+
+    async def _reply(self, request: TalkRequest) -> str:
+        """Stream talker fragments to the client and return the complete reply."""
+        stream_reply = getattr(self.ports.talker, "stream_reply", None)
+        if stream_reply is None:
+            reply = await self.ports.talker.reply(request)
+            await self._send(ServerEvent("session.output_transcript.delta", {"text": reply}))
+            return reply
+        fragments: list[str] = []
+        async for fragment in stream_reply(request):
+            fragments.append(fragment)
+            await self._send(ServerEvent("session.output_transcript.delta", {"text": fragment}))
+        return "".join(fragments)
 
     async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
         """Create one outbound task while preserving the router labels."""

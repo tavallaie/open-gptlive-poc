@@ -71,3 +71,17 @@ required.
 LM Studio uses its native `/api/v1/chat` endpoint by default. Set
 `GPTLIVE_LM_STUDIO_BASE_URL` to a `/v1` base URL to use the compatible
 `/v1/chat/completions` endpoint instead.
+
+Test native streaming directly:
+
+```bash
+curl -N http://localhost:1234/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-2b-mtp-voodoo",
+    "system_prompt": "You answer only in rhymes.",
+    "input": "What is your favorite color?",
+    "stream": true,
+    "store": false
+  }'
+```

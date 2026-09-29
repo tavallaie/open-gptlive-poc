@@ -48,6 +48,19 @@ class RouterTests(unittest.TestCase):
 
 
 class TalkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_stream_yields_message_deltas(self):
+        async def stream_transport(url, payload):
+            self.assertEqual(url, "http://localhost:1234/api/v1/chat")
+            self.assertTrue(payload["stream"])
+            yield "chat.start", {"type": "chat.start"}
+            yield "message.delta", {"type": "message.delta", "content": "Blue"}
+            yield "message.delta", {"type": "message.delta", "content": "."}
+            yield "message.end", {"type": "message.end"}
+
+        talker = LMStudioTalker("http://localhost:1234/api/v1", "local-model", stream_transport=stream_transport)
+
+        self.assertEqual([fragment async for fragment in talker.stream_reply(TalkRequest("What color?"))], ["Blue", "."])
+
     async def test_native_lm_studio_api_uses_input_and_output_message(self):
         captured = {}
 
