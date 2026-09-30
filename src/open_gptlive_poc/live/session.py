@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
+from base64 import b64decode
+from binascii import Error as Base64Error
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from ..config import Settings
+from ..ports.router import RouteDecision
+from ..ports.talker import TalkRequest, TranscriptTurn
 from .protocol import ClientEvent, ProtocolError, ServerEvent, parse_client_event
 
 if TYPE_CHECKING:
@@ -27,6 +32,9 @@ class WebSocketLike(Protocol):
 
 
 PortFactory = Callable[[], Any]
+_VAD_FRAME_BYTES = 768 * 2
+_MAX_SPEECH_AUDIO_BYTES = 60 * 24_000 * 2
+_MAX_HISTORY_TURNS = 20
 
 
 @dataclass(slots=True)
@@ -41,6 +49,10 @@ class SessionState:
     thinking: list[str] = field(default_factory=list)
     commentary: list[str] = field(default_factory=list)
     transcripts: list[str] = field(default_factory=list)
+    history: list[TranscriptTurn] = field(default_factory=list)
+    speech_audio: bytearray = field(default_factory=bytearray)
+    speech_start_ms: int | None = None
+    vad_pending_audio: bytearray = field(default_factory=bytearray)
     delegation_ids: set[str] = field(default_factory=set)
 
 
@@ -110,10 +122,13 @@ class LiveSession:
         try:
             if event.type == "session.input_audio.append":
                 if not self.state.muted:
-                    await self._call_port("append_audio", event.data["audio"])
+                    await self._append_audio(event.data["audio"])
                 return
             if event.type == "session.input_audio.mute":
                 self.state.muted = True
+                self.state.vad_pending_audio.clear()
+                self.state.speech_audio.clear()
+                self.state.speech_start_ms = None
                 await self._call_port("set_muted", True)
                 await self._ack("session.input_audio.muted", event)
                 return
@@ -143,6 +158,117 @@ class LiveSession:
                 await self._ack("session.updated", event)
         except Exception:
             await self._send_error("internal_error", "Session adapter failed")
+
+    async def _append_audio(self, encoded_audio: str) -> None:
+        """Decode one client audio event and finish turns at VAD boundaries."""
+        try:
+            pcm16le = b64decode(encoded_audio, validate=True)
+        except (Base64Error, ValueError) as exc:
+            raise ValueError("audio must be valid base64") from exc
+        if self.ports is None:
+            return
+        self.state.vad_pending_audio.extend(pcm16le)
+        while len(self.state.vad_pending_audio) >= _VAD_FRAME_BYTES:
+            frame = bytes(self.state.vad_pending_audio[:_VAD_FRAME_BYTES])
+            del self.state.vad_pending_audio[:_VAD_FRAME_BYTES]
+            events = await asyncio.to_thread(self.ports.vad.append_audio, frame)
+            stopped_at: int | None = None
+            for event in events:
+                if event.type == "speech_started":
+                    self.state.speech_start_ms = event.offset_ms
+                elif event.type == "speech_stopped":
+                    stopped_at = event.offset_ms
+            if self.state.speech_start_ms is not None:
+                self.state.speech_audio.extend(frame)
+                if len(self.state.speech_audio) > _MAX_SPEECH_AUDIO_BYTES:
+                    excess = len(self.state.speech_audio) - _MAX_SPEECH_AUDIO_BYTES
+                    del self.state.speech_audio[:excess]
+                    self.state.speech_start_ms += excess // 48
+            if stopped_at is not None:
+                await self._finish_turn(stopped_at)
+
+    async def _finish_turn(self, end_ms: int) -> None:
+        """Transcribe the buffered speech and route its completed turn."""
+        if not self.state.speech_audio:
+            self.state.speech_start_ms = None
+            return
+        try:
+            transcript = await asyncio.to_thread(
+                self.ports.asr.transcribe,
+                bytes(self.state.speech_audio),
+                self.state.speech_start_ms or 0,
+            )
+            self.state.speech_audio.clear()
+            if not transcript.text:
+                return
+            await self._send(
+                ServerEvent(
+                    "session.input_transcript.delta",
+                    {"text": transcript.text, "start_ms": transcript.start_ms, "end_ms": min(transcript.end_ms, end_ms)},
+                )
+            )
+            await self.handle_transcript(transcript.text)
+        finally:
+            self.state.speech_audio.clear()
+            self.state.speech_start_ms = None
+
+    async def handle_transcript(self, transcript: str) -> None:
+        """Route one completed ASR transcript through the session adapters."""
+        if not transcript.strip() or self.ports is None:
+            return
+        try:
+            decision = await asyncio.to_thread(self.ports.router.classify, transcript)
+            if decision.talk:
+                request = TalkRequest(
+                    transcript=transcript,
+                    instructions=tuple(self.state.instructions),
+                    thinking=tuple(self.state.thinking),
+                    history=tuple(self.state.history),
+                )
+                reply = await self._reply(request)
+                self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
+                self.state.transcripts.extend((transcript, reply))
+            else:
+                self.state.history.append(TranscriptTurn("user", transcript))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
+                self.state.transcripts.append(transcript)
+            if decision.task:
+                delegation_id = await self._create_task(transcript, decision)
+                self.state.delegation_ids.add(delegation_id)
+                await self._send(
+                    ServerEvent(
+                        "session.delegation.created",
+                        {"delegation_id": delegation_id, "target": "client"},
+                    )
+                )
+        except Exception:
+            await self._send_error("internal_error", "Session adapter failed")
+
+    async def _reply(self, request: TalkRequest) -> str:
+        """Stream talker fragments to the client and return the complete reply."""
+        stream_reply = getattr(self.ports.talker, "stream_reply", None)
+        if stream_reply is None:
+            reply = await self.ports.talker.reply(request)
+            await self._send(ServerEvent("session.output_transcript.delta", {"text": reply}))
+            return reply
+        fragments: list[str] = []
+        async for fragment in stream_reply(request):
+            fragments.append(fragment)
+            await self._send(ServerEvent("session.output_transcript.delta", {"text": fragment}))
+        return "".join(fragments)
+
+    async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
+        """Create one outbound task while preserving the router labels."""
+        method = getattr(self.ports.tasks, "create", None)
+        if method is None:
+            raise RuntimeError("task adapter is not configured")
+        result = method(self.state.session_id, transcript, dict(decision.labels))
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, str) or not result:
+            raise RuntimeError("task adapter returned an invalid delegation id")
+        return result
 
     async def _call_port(self, method_name: str, *args: Any) -> None:
         """Call an optional port method without coupling this layer to adapters."""

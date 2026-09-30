@@ -1,7 +1,46 @@
 """ASGI entry point for local development."""
 
-from .app import create_app
+from .adapters.faster_whisper import FasterWhisperASR
+from .adapters.gliner_router import GLiNERRouter
+from .adapters.http_tasks import HttpTasks
+from .adapters.laya_router import LayaRouter
+from .adapters.lmstudio_talker import LMStudioTalker
+from .adapters.silero_vad import SileroVAD
+from .app import Ports, create_app
 from .config import Settings
 
 
-app = create_app(Settings.from_env())
+settings = Settings.from_env()
+if settings.router_provider == "laya":
+    router = LayaRouter(
+        settings.laya_model_path or "",
+        onnx_path=settings.laya_onnx_path or "",
+        subfolder=settings.laya_subfolder,
+        task_threshold=settings.gliner_task_threshold,
+    )
+else:
+    router = GLiNERRouter(
+        settings.gliner_model_path or "",
+        device=settings.gliner_device,
+        task_threshold=settings.gliner_task_threshold,
+    )
+talker = LMStudioTalker(
+    settings.lm_studio_base_url,
+    settings.lm_studio_model,
+    reasoning_effort=settings.lm_studio_reasoning_effort,
+)
+
+
+def ports_factory() -> Ports:
+    """Create stateful speech adapters for one WebSocket session."""
+    return Ports(
+        vad=SileroVAD(settings.silero_model_path or "", pause_ms=settings.vad_pause_ms),
+        asr=FasterWhisperASR(settings.whisper_model_path or ""),
+        router=router,
+        talker=talker,
+        speaker=object(),
+        tasks=HttpTasks(settings.tasks_url),
+    )
+
+
+app = create_app(settings, ports_factory)
