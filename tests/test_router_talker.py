@@ -3,6 +3,7 @@ import unittest
 
 from open_gptlive_poc.adapters.gliner_router import GLiNERRouter
 from open_gptlive_poc.adapters.http_tasks import HttpTasks
+from open_gptlive_poc.adapters.laya_router import LayaRouter
 from open_gptlive_poc.adapters.lmstudio_talker import LMStudioTalker
 from open_gptlive_poc.ports.talker import TalkRequest, TranscriptTurn
 
@@ -12,8 +13,8 @@ class FakeGLiNER:
         self.result = result
         self.calls = []
 
-    def classify_text(self, transcript, questions):
-        self.calls.append((transcript, questions))
+    def classify_text(self, transcript, questions, include_confidence=False):
+        self.calls.append((transcript, questions, include_confidence))
         return self.result
 
 
@@ -46,6 +47,27 @@ class RouterTests(unittest.TestCase):
         self.assertFalse(decision.task)
         self.assertTrue(decision.talk)
         self.assertEqual(decision.kind, "chat")
+
+    def test_laya_decision_uses_typed_answers(self):
+        class FakeLaya:
+            def __init__(self):
+                self.calls = []
+
+            def predict(self, state, questions):
+                self.calls.append((state, questions))
+                return {"answers": {
+                    "needs_task": {"choice": "task", "probabilities": {"task": 0.9, "no_task": 0.1}},
+                    "kind": {"choice": "task"},
+                    "response": {"choice": "both"},
+                }}
+
+        model = FakeLaya()
+        decision = LayaRouter("unused", onnx_path="unused", model=model).classify("Book a flight")
+
+        self.assertTrue(decision.task)
+        self.assertTrue(decision.talk)
+        self.assertEqual(decision.kind, "task")
+        self.assertEqual(model.calls[0][0], "Book a flight")
 
 
 class TalkerTests(unittest.IsolatedAsyncioTestCase):

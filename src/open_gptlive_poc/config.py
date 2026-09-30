@@ -23,6 +23,10 @@ class Settings:
     whisper_model_path: str | None = None
     gliner_model_path: str | None = None
     gliner_device: str = "cpu"
+    router_provider: str = "gliner"
+    laya_model_path: str | None = None
+    laya_onnx_path: str | None = None
+    laya_subfolder: str = "multilingual"
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     lm_studio_model: str = "local-model"
     lm_studio_reasoning_effort: str = "none"
@@ -48,6 +52,10 @@ class Settings:
             whisper_model_path=raw.get("whisper_model_path") or None,
             gliner_model_path=raw.get("gliner_model_path") or None,
             gliner_device=raw.get("gliner_device", defaults.gliner_device),
+            router_provider=raw.get("router_provider", defaults.router_provider),
+            laya_model_path=raw.get("laya_model_path") or None,
+            laya_onnx_path=raw.get("laya_onnx_path") or None,
+            laya_subfolder=raw.get("laya_subfolder", defaults.laya_subfolder),
             lm_studio_base_url=raw.get("lm_studio_base_url", defaults.lm_studio_base_url),
             lm_studio_model=raw.get("lm_studio_model", defaults.lm_studio_model),
             lm_studio_reasoning_effort=raw.get("lm_studio_reasoning_effort", defaults.lm_studio_reasoning_effort),
@@ -61,12 +69,18 @@ class Settings:
 
     def validate(self) -> "Settings":
         """Return this settings object or raise a useful configuration error."""
+        if self.router_provider not in {"gliner", "laya"}:
+            raise ConfigurationError("GPTLIVE_ROUTER_PROVIDER must be gliner or laya")
         required = {
             "GPTLIVE_BEARER_TOKEN": self.bearer_token,
             "GPTLIVE_SILERO_MODEL_PATH": self.silero_model_path,
             "GPTLIVE_WHISPER_MODEL_PATH": self.whisper_model_path,
-            "GPTLIVE_GLINER_MODEL_PATH": self.gliner_model_path,
         }
+        if self.router_provider == "gliner":
+            required["GPTLIVE_GLINER_MODEL_PATH"] = self.gliner_model_path
+        else:
+            required["GPTLIVE_LAYA_MODEL_PATH"] = self.laya_model_path
+            required["GPTLIVE_LAYA_ONNX_PATH"] = self.laya_onnx_path
         missing = [name for name, value in required.items() if not value]
         if missing:
             raise ConfigurationError(f"Missing required configuration: {', '.join(missing)}")

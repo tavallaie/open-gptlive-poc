@@ -3,6 +3,7 @@
 from .adapters.faster_whisper import FasterWhisperASR
 from .adapters.gliner_router import GLiNERRouter
 from .adapters.http_tasks import HttpTasks
+from .adapters.laya_router import LayaRouter
 from .adapters.lmstudio_talker import LMStudioTalker
 from .adapters.silero_vad import SileroVAD
 from .app import Ports, create_app
@@ -10,11 +11,19 @@ from .config import Settings
 
 
 settings = Settings.from_env()
-router = GLiNERRouter(
-    settings.gliner_model_path or "",
-    device=settings.gliner_device,
-    task_threshold=settings.gliner_task_threshold,
-)
+if settings.router_provider == "laya":
+    router = LayaRouter(
+        settings.laya_model_path or "",
+        onnx_path=settings.laya_onnx_path or "",
+        subfolder=settings.laya_subfolder,
+        task_threshold=settings.gliner_task_threshold,
+    )
+else:
+    router = GLiNERRouter(
+        settings.gliner_model_path or "",
+        device=settings.gliner_device,
+        task_threshold=settings.gliner_task_threshold,
+    )
 talker = LMStudioTalker(
     settings.lm_studio_base_url,
     settings.lm_studio_model,

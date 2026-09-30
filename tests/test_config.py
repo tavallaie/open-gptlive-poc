@@ -19,6 +19,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.port, 8000)
         self.assertEqual(settings.vad_pause_ms, 700)
         self.assertEqual(settings.supertonic_voice_map, {"marin": "F1"})
+        self.assertEqual(settings.router_provider, "gliner")
 
     def test_missing_required_values_are_reported(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):
@@ -34,6 +35,26 @@ class SettingsTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ConfigurationError, "between 0 and 1"):
             Settings.from_env(environment)
+
+    def test_router_provider_is_validated(self) -> None:
+        environment = {**VALID_ENV, "GPTLIVE_ROUTER_PROVIDER": "unknown"}
+
+        with self.assertRaisesRegex(ConfigurationError, "gliner or laya"):
+            Settings.from_env(environment)
+
+    def test_laya_provider_requires_laya_paths(self) -> None:
+        environment = {
+            key: value for key, value in VALID_ENV.items() if key != "GPTLIVE_GLINER_MODEL_PATH"
+        }
+        environment.update({
+            "GPTLIVE_ROUTER_PROVIDER": "laya",
+            "GPTLIVE_LAYA_MODEL_PATH": "/models/laya",
+            "GPTLIVE_LAYA_ONNX_PATH": "/models/laya.onnx",
+        })
+
+        settings = Settings.from_env(environment)
+
+        self.assertEqual(settings.laya_onnx_path, "/models/laya.onnx")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
-"""GLiNER2.5-Decide transcript router."""
+"""ONNX GLiNER2.5-Decide transcript router."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import importlib.util
 from numbers import Real
+from pathlib import Path
+import sys
 from typing import Any, cast
 
 from ..ports.router import RouteDecision, RouteKind, Router
@@ -37,17 +40,19 @@ class GLiNERRouter(Router):
         """Return a typed route from one transcript."""
         if not transcript.strip():
             raise ValueError("transcript must not be empty")
-        result = self.model.classify_text(transcript, _QUESTION)
+        result = self.model.classify_text(transcript, _QUESTION, include_confidence=True)
         if not isinstance(result, Mapping):
             raise TypeError("GLiNER response must be a mapping")
-        needs_task = _score(result.get("needs_task"), positive=("task", "yes", "true"))
-        kind = _choice(result.get("kind"), ("chat", "task", "function_call"), "chat")
-        response = _choice(result.get("response"), ("talk", "task", "both"), "talk" if kind == "chat" else "task")
+        needs_task = _score(_label_confidence(result.get("needs_task")), positive=("task", "yes", "true"))
+        kind = _choice(_label_confidence(result.get("kind")), ("chat", "task", "function_call"), "chat")
+        response = _choice(_label_confidence(result.get("response")), ("talk", "task", "both"), "talk" if kind == "chat" else "task")
+        task = needs_task >= self.task_threshold
+        talk = not task or kind == "chat" or response in {"talk", "both"}
         return RouteDecision(
             transcript=transcript,
             needs_task=needs_task,
             kind=cast(RouteKind, kind),
-            talk=response in {"talk", "both"},
+            talk=talk,
             labels=dict(result),
             task_threshold=self.task_threshold,
         )
@@ -56,11 +61,59 @@ class GLiNERRouter(Router):
     def _load_model(model_path: str, device: str, model_factory: Callable[[str], Any] | None) -> Any:
         if model_factory is not None:
             return model_factory(model_path)
+        local_path = Path(model_path)
+        if local_path.is_dir() and (local_path / "gliner_onnx.py").is_file():
+            return _load_local_onnx_model(local_path)
         try:
-            from gliner2 import Extractor
+            from gliner2 import GLiNER2
         except ImportError as exc:
             raise RuntimeError("Install gliner2 to use GLiNERRouter") from exc
-        return Extractor.from_pretrained(model_path, map_location=device)
+        # GLiNER2 selects the ONNX Runtime backend when the model repository
+        # contains an ONNX graph. The device remains a configuration concern
+        # for repositories that provide a CPU/GPU-specific runtime.
+        return GLiNER2.from_pretrained(model_path)
+
+
+def _label_confidence(value: object) -> object:
+    """Normalize GLiNER's confidence result to the router's label-score shape."""
+    if isinstance(value, Mapping) and isinstance(value.get("label"), str) and isinstance(value.get("confidence"), Real):
+        return value["label"], value["confidence"]
+    return value
+
+
+def _load_local_onnx_model(model_path: Path) -> Any:
+    """Load the torch-free runtime shipped with the ONNX model bundle."""
+    spec = importlib.util.spec_from_file_location("gptlive_gliner_onnx", model_path / "gliner_onnx.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load GLiNER ONNX runtime from {model_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    model_file = next(model_path.glob("model*.onnx"), None)
+    if model_file is None:
+        raise FileNotFoundError(f"No ONNX graph found in {model_path}")
+    return _LocalGlinerClassifier(module, model_file, model_path / "tokenizer.json")
+
+
+class _LocalGlinerClassifier:
+    """Adapt the bundle's probability API to the existing router port."""
+
+    def __init__(self, module: Any, model_path: Path, tokenizer_path: Path) -> None:
+        self._module = module
+        self._model = module.GlinerOnnx(str(model_path), str(tokenizer_path))
+
+    def classify_text(
+        self,
+        transcript: str,
+        questions: Mapping[str, list[str]],
+        *,
+        include_confidence: bool = False,
+    ) -> Mapping[str, Mapping[str, float]]:
+        tasks = [
+            self._module.Task(name, {label: None for label in labels}, exclusive=True)
+            for name, labels in questions.items()
+        ]
+        return self._model.probabilities(transcript, tasks)
 
 
 def _score(value: object, *, positive: tuple[str, ...]) -> float:

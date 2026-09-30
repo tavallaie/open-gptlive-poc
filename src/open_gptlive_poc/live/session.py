@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from base64 import b64decode
@@ -31,6 +32,9 @@ class WebSocketLike(Protocol):
 
 
 PortFactory = Callable[[], Any]
+_VAD_FRAME_BYTES = 768 * 2
+_MAX_SPEECH_AUDIO_BYTES = 60 * 24_000 * 2
+_MAX_HISTORY_TURNS = 20
 
 
 @dataclass(slots=True)
@@ -47,7 +51,8 @@ class SessionState:
     transcripts: list[str] = field(default_factory=list)
     history: list[TranscriptTurn] = field(default_factory=list)
     speech_audio: bytearray = field(default_factory=bytearray)
-    speech_start_ms: int = 0
+    speech_start_ms: int | None = None
+    vad_pending_audio: bytearray = field(default_factory=bytearray)
     delegation_ids: set[str] = field(default_factory=set)
 
 
@@ -121,6 +126,9 @@ class LiveSession:
                 return
             if event.type == "session.input_audio.mute":
                 self.state.muted = True
+                self.state.vad_pending_audio.clear()
+                self.state.speech_audio.clear()
+                self.state.speech_start_ms = None
                 await self._call_port("set_muted", True)
                 await self._ack("session.input_audio.muted", event)
                 return
@@ -159,20 +167,37 @@ class LiveSession:
             raise ValueError("audio must be valid base64") from exc
         if self.ports is None:
             return
-        self.state.speech_audio.extend(pcm16le)
-        events = self.ports.vad.append_audio(pcm16le)
-        for event in events:
-            if event.type == "speech_started":
-                self.state.speech_start_ms = event.offset_ms
-            elif event.type == "speech_stopped":
-                await self._finish_turn(event.offset_ms)
+        self.state.vad_pending_audio.extend(pcm16le)
+        while len(self.state.vad_pending_audio) >= _VAD_FRAME_BYTES:
+            frame = bytes(self.state.vad_pending_audio[:_VAD_FRAME_BYTES])
+            del self.state.vad_pending_audio[:_VAD_FRAME_BYTES]
+            events = await asyncio.to_thread(self.ports.vad.append_audio, frame)
+            stopped_at: int | None = None
+            for event in events:
+                if event.type == "speech_started":
+                    self.state.speech_start_ms = event.offset_ms
+                elif event.type == "speech_stopped":
+                    stopped_at = event.offset_ms
+            if self.state.speech_start_ms is not None:
+                self.state.speech_audio.extend(frame)
+                if len(self.state.speech_audio) > _MAX_SPEECH_AUDIO_BYTES:
+                    excess = len(self.state.speech_audio) - _MAX_SPEECH_AUDIO_BYTES
+                    del self.state.speech_audio[:excess]
+                    self.state.speech_start_ms += excess // 48
+            if stopped_at is not None:
+                await self._finish_turn(stopped_at)
 
     async def _finish_turn(self, end_ms: int) -> None:
         """Transcribe the buffered speech and route its completed turn."""
         if not self.state.speech_audio:
+            self.state.speech_start_ms = None
             return
         try:
-            transcript = self.ports.asr.transcribe(bytes(self.state.speech_audio), self.state.speech_start_ms)
+            transcript = await asyncio.to_thread(
+                self.ports.asr.transcribe,
+                bytes(self.state.speech_audio),
+                self.state.speech_start_ms or 0,
+            )
             self.state.speech_audio.clear()
             if not transcript.text:
                 return
@@ -185,13 +210,14 @@ class LiveSession:
             await self.handle_transcript(transcript.text)
         finally:
             self.state.speech_audio.clear()
+            self.state.speech_start_ms = None
 
     async def handle_transcript(self, transcript: str) -> None:
         """Route one completed ASR transcript through the session adapters."""
         if not transcript.strip() or self.ports is None:
             return
         try:
-            decision = self.ports.router.classify(transcript)
+            decision = await asyncio.to_thread(self.ports.router.classify, transcript)
             if decision.talk:
                 request = TalkRequest(
                     transcript=transcript,
@@ -201,9 +227,11 @@ class LiveSession:
                 )
                 reply = await self._reply(request)
                 self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
                 self.state.transcripts.extend((transcript, reply))
             else:
                 self.state.history.append(TranscriptTurn("user", transcript))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
                 self.state.transcripts.append(transcript)
             if decision.task:
                 delegation_id = await self._create_task(transcript, decision)

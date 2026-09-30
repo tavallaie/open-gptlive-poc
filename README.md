@@ -19,7 +19,9 @@ flowchart LR
     Session --> Tasks[Tasks port]
     VAD --> Silero[Silero adapter]
     ASR --> Whisper[Faster-Whisper adapter]
-    Router --> GLiNER[GLiNER2.5-Decide adapter]
+    Router --> Decision[Selectable System 1 provider]
+    Decision --> GLiNER[GLiNER2.5-Decide ONNX]
+    Decision --> Laya[Laya multilingual ONNX]
     Talker --> LM[LM Studio adapter]
     Speaker --> Supertonic[Supertonic adapter]
     Tasks --> HTTP[Async task HTTP adapter]
@@ -62,11 +64,31 @@ credentials and local model paths must remain outside the repository.
 Set the required model paths in an untracked local `.env` file or in the
 deployment environment. Do not add machine-specific paths to the repository.
 
-The router uses [fastino/GLiNER2.5-Decide](https://huggingface.co/fastino/GLiNER2.5-Decide)
-for local transcript classification. Keep its Hugging Face snapshot outside the
-repository and point `GPTLIVE_GLINER_MODEL_PATH` at that snapshot. The model is
-English-only; use the multilingual GLiNER2.5 variant if multilingual routing is
-required.
+The router uses one selectable System 1 decision provider per process. GLiNER
+and Laya are alternatives, not sequential stages. The default is the ONNX
+export of [GLiNER2.5-Decide](https://huggingface.co/nishparadox/gliner2.5-decide-onnx):
+
+```env
+GPTLIVE_ROUTER_PROVIDER=gliner
+GPTLIVE_GLINER_MODEL_PATH=/models/gliner2.5-decide-onnx
+```
+
+To evaluate or run the multilingual Laya provider instead, install the ONNX
+extra and configure the original Laya tokenizer/configuration plus its ONNX
+graph:
+
+```env
+GPTLIVE_ROUTER_PROVIDER=laya
+GPTLIVE_LAYA_MODEL_PATH=/models/laya-multilingual-onnx-int4
+GPTLIVE_LAYA_SUBFOLDER=multilingual
+GPTLIVE_LAYA_ONNX_PATH=/models/laya-multilingual-onnx-int4/laya-multilingual-int4-blk32.onnx
+```
+
+Laya uses typed `choice`, `score`, and `noul` questions and returns the same
+`RouteDecision` interface as GLiNER. Keep model downloads outside the
+repository; model paths and Hub IDs are configuration only. See the
+[Laya ONNX runtime](https://nandhakishorm.github.io/laya/reference/agent/)
+and [multilingual ONNX export](https://huggingface.co/yehor-oleksiuk/laya-multilingual-onnx).
 
 LM Studio uses the OpenAI-compatible `/v1/chat/completions` endpoint by
 default. Set `GPTLIVE_LM_STUDIO_BASE_URL` to `/api/v1` only when using the

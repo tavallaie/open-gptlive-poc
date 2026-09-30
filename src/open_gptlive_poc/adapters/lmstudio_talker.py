@@ -62,16 +62,21 @@ class LMStudioTalker(Talker):
         }
         payload["stream"] = True
         if self.stream_transport is not None:
+            has_text = False
             async for event_type, event in self.stream_transport(self.url, payload):
                 fragment = _stream_fragment(event_type, event, self.native)
                 if fragment:
+                    has_text = has_text or bool(fragment.strip())
                     yield fragment
+            if not has_text:
+                raise RuntimeError("LM Studio returned empty reply text")
             return
         try:
             import httpx
         except ImportError as exc:
             raise RuntimeError("Install httpx to stream LM Studio replies") from exc
         async with httpx.AsyncClient(timeout=60) as client:
+            has_text = False
             async with client.stream("POST", self.url, json=payload) as response:
                 response.raise_for_status()
                 event_type = ""
@@ -84,7 +89,10 @@ class LMStudioTalker(Talker):
                         event = json.loads(line[6:])
                         fragment = _stream_fragment(event_type, event, self.native)
                         if fragment:
+                            has_text = has_text or bool(fragment.strip())
                             yield fragment
+            if not has_text:
+                raise RuntimeError("LM Studio returned empty reply text")
 
 
 def _messages(request: TalkRequest) -> list[dict[str, str]]:

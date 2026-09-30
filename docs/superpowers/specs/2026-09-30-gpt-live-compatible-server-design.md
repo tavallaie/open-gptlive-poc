@@ -176,7 +176,10 @@ Barge-in: `speech_started` while Speaker is playing cancels the current utteranc
 
 ### ASR (Faster-Whisper)
 
-Input is PCM from last `speech_started` through `speech_stopped`.
+Input is PCM from the complete 32 ms VAD frame at `speech_started` through
+`speech_stopped`. Silence outside an active speech turn is discarded. A turn
+buffer is capped at 60 seconds, keeping its most recent audio if that cap is
+reached.
 
 Output is text plus `start_ms` / `end_ms` relative to session start.
 
@@ -208,7 +211,8 @@ The GLiNER classification labels live in one module. Change labels there, not in
 Config supplies base URL (example `http://127.0.0.1:1234/v1`) and model name.
 The adapter also supports LM Studio's native `/api/v1/chat` path.
 
-Input is session instructions, thinking appends, and recent input/output transcripts.
+Input is session instructions, thinking appends, and the 20 most recent
+input/output transcript turns.
 
 Output is plain reply text.
 
