@@ -94,6 +94,14 @@ LM Studio uses the OpenAI-compatible `/v1/chat/completions` endpoint by
 default. Set `GPTLIVE_LM_STUDIO_BASE_URL` to `/api/v1` only when using the
 native LM Studio API.
 
+Supertonic supplies speech output. Its Python package downloads model files to
+the Hugging Face cache on first use. The Live voice `marin` maps to Supertonic
+style `F1`; override voice/style mappings with
+`GPTLIVE_SUPERTONIC_VOICE_MAP`, for example
+`{"marin":"F1","cedar":"M1"}`. Audio is resampled to mono 24 kHz PCM16LE
+and emitted as 100 ms deltas. The authenticated task callback endpoint accepts
+`POST /internal/delegations/{delegation_id}/result` with `{"content":"..."}`.
+
 Test OpenAI-compatible streaming directly:
 
 ```bash

@@ -4,12 +4,9 @@ from typing import Protocol
 
 from .asr import ASR, Transcript
 from .router import RouteDecision, Router
+from .speaker import Speaker
 from .talker import TalkRequest, Talker, TranscriptTurn
 from .vad import VAD, VADEvent
-
-
-class Speaker(Protocol):
-    """Text-to-speech port."""
 
 
 class Tasks(Protocol):

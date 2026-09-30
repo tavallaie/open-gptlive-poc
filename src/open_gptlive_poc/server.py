@@ -6,6 +6,7 @@ from .adapters.http_tasks import HttpTasks
 from .adapters.laya_router import LayaRouter
 from .adapters.lmstudio_talker import LMStudioTalker
 from .adapters.silero_vad import SileroVAD
+from .adapters.supertonic_speaker import SupertonicSpeaker
 from .app import Ports, create_app
 from .config import Settings
 
@@ -29,6 +30,7 @@ talker = LMStudioTalker(
     settings.lm_studio_model,
     reasoning_effort=settings.lm_studio_reasoning_effort,
 )
+speaker = SupertonicSpeaker(settings.supertonic_voice_map)
 
 
 def ports_factory() -> Ports:
@@ -38,7 +40,7 @@ def ports_factory() -> Ports:
         asr=FasterWhisperASR(settings.whisper_model_path or ""),
         router=router,
         talker=talker,
-        speaker=object(),
+        speaker=speaker,
         tasks=HttpTasks(settings.tasks_url),
     )
 

@@ -1,6 +1,10 @@
 import struct
 import tempfile
 import unittest
+
+import numpy as np
+
+from open_gptlive_poc.adapters.supertonic_speaker import SupertonicSpeaker
 from pathlib import Path
 
 from open_gptlive_poc.adapters.silero_vad import SileroVAD, resample_pcm16le
@@ -20,7 +24,31 @@ class FakeModel:
         return iter([FakeSegment()]), object()
 
 
+class FakeSupertonic:
+    def __init__(self) -> None:
+        self.voice_name = None
+
+    def get_voice_style(self, voice_name: str):
+        self.voice_name = voice_name
+        return voice_name
+
+    def synthesize(self, text: str, *, voice_style: str, lang: str):
+        self.arguments = (text, voice_style, lang)
+        return np.ones((1, 441), dtype=np.float32) * 0.5, np.array([0.01])
+
+
 class AdapterTests(unittest.TestCase):
+    def test_supertonic_maps_marin_and_resamples_to_pcm16le(self) -> None:
+        model = FakeSupertonic()
+        speaker = SupertonicSpeaker({"marin": "F1"}, tts=model)
+
+        result = speaker.synthesize("Hello", "marin")
+
+        self.assertEqual(model.voice_name, "F1")
+        self.assertEqual(model.arguments, ("Hello", "F1", "na"))
+        self.assertEqual(len(result), 240 * 2)
+        self.assertEqual(struct.unpack_from("<h", result)[0], 16384)
+
     def test_resampler_changes_24khz_to_16khz(self) -> None:
         source = struct.pack("<3h", 0, 1000, 2000)
 

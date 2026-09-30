@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from collections.abc import Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from .config import Settings
 from .ports import ASR, Router, Speaker, Tasks, Talker, VAD
@@ -30,11 +30,28 @@ def create_app(
     app = FastAPI(title="GPT-Live server")
     app.state.settings = settings
     app.state.ports_factory = ports_factory or (lambda: None)
+    app.state.sessions = {}
 
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a minimal liveness response."""
         return {"status": "ok"}
+
+    @app.post("/internal/delegations/{delegation_id}/result")
+    async def delegation_result(delegation_id: str, request: Request) -> dict[str, str]:
+        """Deliver task callback text to its live session for speech output."""
+        from .live.protocol import authenticate
+
+        if not authenticate(request.headers.get("authorization"), settings.bearer_token or ""):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        payload = await request.json()
+        content = payload.get("content") if isinstance(payload, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            raise HTTPException(status_code=422, detail="content must be a non-empty string")
+        for session in app.state.sessions.values():
+            if session.handle_task_result(delegation_id, content):
+                return {"status": "accepted"}
+        raise HTTPException(status_code=404, detail="Unknown delegation")
 
     @app.websocket("/v1/live/sessions")
     async def live_sessions(websocket: WebSocket) -> None:
@@ -47,9 +64,12 @@ def create_app(
             return
         await websocket.accept()
         session = LiveSession(websocket, settings, app.state.ports_factory)
+        app.state.sessions[session.state.session_id] = session
         try:
             await session.run()
         except WebSocketDisconnect:
             await session.close("connection_lost")
+        finally:
+            app.state.sessions.pop(session.state.session_id, None)
 
     return app
