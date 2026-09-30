@@ -55,6 +55,14 @@ sequenceDiagram
     S-->>C: session.closed + usage
 ```
 
+Sessions report cumulative wall-clock time in `session.usage.updated` about
+once per minute and repeat the final seconds in `session.closed`. The server
+closes expired sessions with reason `expired`; configure the limit with
+`GPTLIVE_MAX_SESSION_DURATION_S` (default `3600`). Explicit closes use
+`close_requested`, and disconnected sockets use `connection_lost`. Closing a
+session cancels current and queued speech but does not cancel tasks already
+submitted to the external task system.
+
 ## Development
 
 ```bash

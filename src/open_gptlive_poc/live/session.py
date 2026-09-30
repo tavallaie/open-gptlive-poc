@@ -37,6 +37,7 @@ _VAD_FRAME_BYTES = 768 * 2
 _MAX_SPEECH_AUDIO_BYTES = 60 * 24_000 * 2
 _MAX_HISTORY_TURNS = 20
 _OUTPUT_AUDIO_CHUNK_BYTES = 4_800
+_USAGE_UPDATE_INTERVAL_SECONDS = 60
 
 
 @dataclass(slots=True)
@@ -68,16 +69,48 @@ class LiveSession:
         self.port_factory = port_factory
         self.state = SessionState()
         self.ports: Ports | None = None
-        self.started_at = time.monotonic()
+        self.started_at = 0.0
         self._speech_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
         self._utterance_task: asyncio.Task[None] | None = None
         self._synthesis_cancel: ThreadEvent | None = None
+        self._next_usage_update = 0.0
 
     async def run(self) -> None:
         """Read, validate, route, and acknowledge events until disconnect."""
+        try:
+            await self._run()
+        finally:
+            if not self.state.closing:
+                await self.close("connection_lost")
+
+    async def _run(self) -> None:
+        """Run the event loop; ``run`` owns cleanup for every exit path."""
         while not self.state.closing:
+            if self.state.started:
+                now = time.monotonic()
+                if now >= self.started_at + self.settings.max_session_duration_s:
+                    await self.close("expired")
+                    return
+                if now >= self._next_usage_update:
+                    await self._send_usage()
+                    self._schedule_next_usage_update(now)
+                    continue
             try:
-                raw = await self.websocket.receive_text()
+                timeout = None
+                if self.state.started:
+                    timeout = min(
+                        self.started_at + self.settings.max_session_duration_s,
+                        self._next_usage_update,
+                    ) - time.monotonic()
+                raw = await asyncio.wait_for(self.websocket.receive_text(), timeout)
+            except asyncio.TimeoutError:
+                now = time.monotonic()
+                if now >= self.started_at + self.settings.max_session_duration_s:
+                    await self.close("expired")
+                    return
+                await self._send_usage()
+                self._schedule_next_usage_update(now)
+                continue
             except (ConnectionError, EOFError):
                 await self.close("connection_lost")
                 return
@@ -101,7 +134,12 @@ class LiveSession:
             if event.type == "session.close":
                 await self.close("close_requested")
                 return
-            await self._handle(event)
+            try:
+                remaining = self.started_at + self.settings.max_session_duration_s - time.monotonic()
+                await asyncio.wait_for(self._handle(event), timeout=max(0.0, remaining))
+            except asyncio.TimeoutError:
+                await self.close("expired")
+                return
 
     async def _start(self, event: ClientEvent) -> None:
         """Create this session's ports and announce the resolved session."""
@@ -115,6 +153,8 @@ class LiveSession:
             self.state.voice = voice
 
         self.state.started = True
+        self.started_at = time.monotonic()
+        self._next_usage_update = self.started_at + _USAGE_UPDATE_INTERVAL_SECONDS
         data = {
             "session": {
                 "id": self.state.session_id,
@@ -382,12 +422,15 @@ class LiveSession:
         if self.state.closing:
             return
         self.state.closing = True
+        utterance_task = self._utterance_task
         self._cancel_speech()
+        if utterance_task is not None:
+            await asyncio.gather(utterance_task, return_exceptions=True)
         try:
             await self._send(
                 ServerEvent(
                     "session.closed",
-                    {"usage": {"seconds": int(time.monotonic() - self.started_at)}, "reason": reason},
+                    {"usage": {"seconds": self._usage_seconds()}, "reason": reason},
                 )
             )
         except Exception:
@@ -396,3 +439,53 @@ class LiveSession:
             await self.websocket.close()
         except Exception:
             pass
+        try:
+            await self._close_ports()
+        finally:
+            self.ports = None
+
+    def _usage_seconds(self) -> int:
+        """Return cumulative wall-clock time since session.start."""
+        if not self.state.started:
+            return 0
+        return int(time.monotonic() - self.started_at)
+
+    async def _send_usage(self) -> None:
+        """Report cumulative wall-clock usage and the unused context window."""
+        await self._send(
+            ServerEvent(
+                "session.usage.updated",
+                {"usage": {"seconds": self._usage_seconds()}, "context_window": {"usage_ratio": 0.0}},
+            )
+        )
+
+    def _schedule_next_usage_update(self, now: float) -> None:
+        """Schedule the next whole-minute usage update without timer drift."""
+        elapsed = now - self.started_at
+        self._next_usage_update = self.started_at + (
+            (int(elapsed // _USAGE_UPDATE_INTERVAL_SECONDS) + 1) * _USAGE_UPDATE_INTERVAL_SECONDS
+        )
+
+    async def _close_ports(self) -> None:
+        """Close unique adapter resources when they expose a close hook."""
+        if self.ports is None:
+            return
+        closed: set[int] = set()
+        # Only VAD and ASR are session-scoped; shared ports and posted tasks outlive it.
+        for name in ("vad", "asr"):
+            port = getattr(self.ports, name, None)
+            if port is None or id(port) in closed:
+                continue
+            closed.add(id(port))
+            close = getattr(port, "close", None)
+            if not callable(close):
+                continue
+            try:
+                if inspect.iscoroutinefunction(close):
+                    await close()
+                else:
+                    result = await asyncio.to_thread(close)
+                    if inspect.isawaitable(result):
+                        await result
+            except Exception:
+                continue

@@ -1,8 +1,10 @@
 import json
 import base64
 import asyncio
+from dataclasses import replace
 from threading import Event
 import unittest
+from unittest.mock import patch
 
 from open_gptlive_poc.live.session import LiveSession
 from open_gptlive_poc.ports.router import RouteDecision
@@ -233,6 +235,142 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.sent[0]["client_event_id"], "start")
         self.assertTrue(websocket.closed)
         self.assertEqual(session.state.instructions, ["Be concise."])
+        self.assertEqual(websocket.sent[-1]["reason"], "close_requested")
+        self.assertEqual(websocket.sent[-1]["usage"]["seconds"], 0)
+
+    async def test_usage_updates_and_expiry_close_resources(self) -> None:
+        class WaitingWebSocket(FakeWebSocket):
+            async def receive_text(self) -> str:
+                if self.events:
+                    return await super().receive_text()
+                await asyncio.Future()
+
+        class Resource:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        websocket = WaitingWebSocket({"type": "session.start", "model": "gpt-live-1"})
+        resource = Resource()
+        shared_speaker = Resource()
+        task_adapter = Resource()
+        session = LiveSession(
+            websocket,
+            replace(self._settings(), max_session_duration_s=0.12),
+            lambda: type("Ports", (), {"vad": resource, "speaker": shared_speaker, "tasks": task_adapter})(),
+        )
+
+        with patch("open_gptlive_poc.live.session._USAGE_UPDATE_INTERVAL_SECONDS", 0.025):
+            await session.run()
+
+        updates = [event["usage"]["seconds"] for event in websocket.sent if event["type"] == "session.usage.updated"]
+        self.assertGreaterEqual(len(updates), 2)
+        self.assertEqual(updates, sorted(updates))
+        self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+        self.assertEqual(websocket.sent[-1]["reason"], "expired")
+        self.assertGreaterEqual(websocket.sent[-1]["usage"]["seconds"], updates[-1])
+        self.assertTrue(resource.closed)
+        self.assertFalse(shared_speaker.closed)
+        self.assertFalse(task_adapter.closed)
+        self.assertIsNone(session.ports)
+        self.assertTrue(websocket.closed)
+
+    async def test_expiry_interrupts_in_flight_session_work(self) -> None:
+        operation_started = Event()
+        release_operation = Event()
+
+        class SlowVAD:
+            def append_audio(self, frame: bytes):
+                operation_started.set()
+                release_operation.wait(timeout=1)
+                return []
+
+        websocket = FakeWebSocket(
+            {"type": "session.start", "model": "gpt-live-1"},
+            {"type": "session.input_audio.append", "audio": base64.b64encode(b"\x00\x00" * 768).decode()},
+        )
+        session = LiveSession(
+            websocket,
+            replace(self._settings(), max_session_duration_s=1),
+            lambda: type("Ports", (), {"vad": SlowVAD()})(),
+        )
+
+        try:
+            with patch("open_gptlive_poc.live.session._USAGE_UPDATE_INTERVAL_SECONDS", 60):
+                await session.run()
+            self.assertTrue(operation_started.is_set())
+            self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+            self.assertEqual(websocket.sent[-1]["reason"], "expired")
+        finally:
+            release_operation.set()
+
+    async def test_disconnect_closes_with_connection_lost_reason(self) -> None:
+        websocket = FakeWebSocket({"type": "session.start", "model": "gpt-live-1"})
+        session = LiveSession(websocket, self._settings(), lambda: None)
+
+        await session.run()
+
+        self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+        self.assertEqual(websocket.sent[-1]["reason"], "connection_lost")
+
+    async def test_unexpected_run_failure_still_closes_session_resources(self) -> None:
+        class BrokenWebSocket(FakeWebSocket):
+            async def receive_text(self) -> str:
+                if self.events:
+                    return await super().receive_text()
+                raise RuntimeError("receive failed")
+
+        class Resource:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        websocket = BrokenWebSocket({"type": "session.start", "model": "gpt-live-1"})
+        resource = Resource()
+        session = LiveSession(
+            websocket,
+            self._settings(),
+            lambda: type("Ports", (), {"vad": resource})(),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "receive failed"):
+            await session.run()
+
+        self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+        self.assertEqual(websocket.sent[-1]["reason"], "connection_lost")
+        self.assertTrue(resource.closed)
+
+    async def test_close_cancels_current_and_queued_speech(self) -> None:
+        synthesis_started = Event()
+
+        class Speaker:
+            def __init__(self):
+                self.requests = []
+
+            def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:
+                self.requests.append(text)
+                synthesis_started.set()
+                while cancel_event is not None and not cancel_event.wait(0.01):
+                    pass
+                return b"\x00\x00" * 2_400
+
+        websocket = FakeWebSocket()
+        speaker = Speaker()
+        session = LiveSession(websocket, self._settings(), lambda: None)
+        session.ports = type("Ports", (), {"speaker": speaker})()
+        session._queue_speech("Current")
+        await asyncio.to_thread(synthesis_started.wait, 1)
+        session._queue_speech("Queued")
+
+        await session.close("close_requested")
+
+        self.assertEqual(speaker.requests, ["Current"])
+        self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+        self.assertFalse(any(event["type"] == "session.output_audio.delta" for event in websocket.sent))
 
     async def test_commands_before_start_are_rejected_and_session_stays_up(self) -> None:
         websocket = FakeWebSocket(
