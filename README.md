@@ -4,6 +4,8 @@ A local GPT-Live voice assistant. You talk in the browser. The server hears you,
 
 > It is a proof of concept. Run it on one machine. Expect bugs. Aim for under 6 GB of VRAM, depending on the models you load.
 
+![Live demo](assets/demo.mp4)
+
 ## What you get
 
 - 🎤 **Live voice in the browser.** Mic in, speech out. Pause and resume from the same button.
@@ -33,14 +35,32 @@ GPTLIVE_GLINER_MODEL_PATH=/models/gliner2.5-decide-onnx
 uv run --env-file .env uvicorn --app-dir src open_gptlive_poc.server:app --host 127.0.0.1 --port 8000
 ```
 
-3. Open <http://127.0.0.1:8000>, allow the mic, click **Start talking**.
-4. Click the same button to pause. **End conversation** hangs up. History stays until the next session.
-
-If `GPTLIVE_BEARER_TOKEN` is set, paste it under Connection settings. Empty token means no auth. Bind to localhost then.
+If `GPTLIVE_BEARER_TOKEN` is set, you will paste it in the page. Empty token means no auth. Bind to localhost then.
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
+
+## Quick start
+
+Open <http://127.0.0.1:8000>. If the server uses a bearer token, put it under Connection settings.
+
+Allow the microphone and click **Start talking**. Speak like you would to a person. The orb shows listening, thinking, and speaking.
+
+Try:
+
+- 🕐 “What time is it?”
+- ⏰ “Remind me in 10 seconds to stretch.”
+
+While it is talking, click **Start talking** again to pause, then once more to resume. You can also talk over it to interrupt.
+
+The page has three panes:
+
+- **Conversation** is played speech and replies
+- **What I heard** is the latest transcript of you
+- **Background** is tasks, like timers
+
+**End conversation** hangs up. History stays until you start the next session.
 
 ## How a turn flows
 
