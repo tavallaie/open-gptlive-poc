@@ -40,8 +40,15 @@ _TOOL_SCHEMAS: tuple[Mapping[str, object], ...] = (
 class SessionTools:
     """Expose clock and background timer functions for one voice session."""
 
-    def __init__(self, notify: Callable[[str], bool], *, session_id: str | None = None) -> None:
+    def __init__(
+        self,
+        notify: Callable[[str], bool],
+        *,
+        on_timer_started: Callable[[int, str], None] | None = None,
+        session_id: str | None = None,
+    ) -> None:
         self._notify = notify
+        self._on_timer_started = on_timer_started
         self.log = logger.bind(component="session-tools", session_id=session_id)
         self._timers: set[asyncio.Task[None]] = set()
 
@@ -86,6 +93,8 @@ class SessionTools:
         task = asyncio.create_task(self._finish_timer(seconds, message.strip()))
         self._timers.add(task)
         task.add_done_callback(self._timers.discard)
+        if self._on_timer_started is not None:
+            self._on_timer_started(seconds, message.strip())
         return f"Timer started for {seconds} seconds. I will remind the user: {message.strip()}"
 
     async def _finish_timer(self, seconds: int, message: str) -> None:

@@ -102,7 +102,7 @@
         <small>Only needed when GPTLIVE_BEARER_TOKEN is set in the server environment. Kept in page memory.</small>
       </details>
       <section class="conversation" aria-label="Conversation transcript">
-        <div class="conversation-head"><span>CONVERSATION</span><span class="live-caption">Live transcript</span></div>
+        <div class="conversation-head"><span>CONVERSATION</span><span id="activity" class="live-caption" aria-live="polite">Live transcript</span></div>
         <div id="transcript" aria-live="polite"></div>
       </section>
     </main>
@@ -119,8 +119,9 @@
     const connectionLabel = document.querySelector("#connection-label");
     const bars = document.querySelector("#bars");
     const tokenInput = document.querySelector("#token");
+    const activity = document.querySelector("#activity");
     let socket, stream, audioContext, source, processor, silence;
-    let analyser, inputAnalyser, visualFrame, playbackIdleTimer;
+    let analyser, inputAnalyser, visualFrame, playbackIdleTimer, activityTimer;
     let playbackAt = 0;
     const audioQueue = [];
     const activePlayers = new Set();
@@ -146,6 +147,12 @@
     function setMode(message, state = "listening") {
       setStatus(message);
       visualStage.dataset.state = state;
+    }
+
+    function setActivity(message) {
+      clearTimeout(activityTimer);
+      activity.textContent = message;
+      activityTimer = setTimeout(() => { activity.textContent = "Live transcript"; }, 8000);
     }
 
     function appendTranscript(role, text, newLine = false) {
@@ -326,6 +333,8 @@
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.input_transcript.delta") {
+        clearTimeout(activityTimer);
+        activity.textContent = "Live transcript";
         appendTranscript("You", event.text ?? event.delta ?? "", true);
         setMode("Thinking about what you said…", "thinking");
       }
@@ -352,6 +361,8 @@
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.delegation.created") setMode("Working on that…", "thinking");
+      if (event.type === "session.delegation.created") setActivity("I’m working on that in the background.");
+      if (event.type === "session.background.update") setActivity(event.message ?? "Background update received.");
       if (event.type === "session.closed") stopLocalAudio("Disconnected.");
       if (event.type === "error") setStatus(event.error?.message ?? "Server error.");
     }

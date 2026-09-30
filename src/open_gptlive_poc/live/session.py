@@ -178,7 +178,11 @@ class LiveSession:
             self.state.voice = voice
 
         self.state.started = True
-        self._tools = SessionTools(self._notify_timer, session_id=self.state.session_id)
+        self._tools = SessionTools(
+            self._notify_timer,
+            on_timer_started=self._timer_started,
+            session_id=self.state.session_id,
+        )
         self.log.info("Live session started", model=event.data["model"], voice=self.state.voice)
         self.started_at = time.monotonic()
         self._next_usage_update = self.started_at + _USAGE_UPDATE_INTERVAL_SECONDS
@@ -487,6 +491,7 @@ class LiveSession:
             return False
         self.state.delegation_ids.remove(delegation_id)
         self.state.commentary.append(content)
+        self._announce_background("A background result is ready; I’ll tell you next.")
         return True
 
     def _notify_timer(self, content: str) -> bool:
@@ -494,7 +499,19 @@ class LiveSession:
         if self.state.closing or not self._queue_speech(content):
             return False
         self.state.commentary.append(content)
+        self._announce_background("Your reminder is ready; I’ll tell you next.")
         return True
+
+    def _timer_started(self, seconds: int, message: str) -> None:
+        """Tell the client that a real background timer has been scheduled."""
+        self._announce_background(f"I’ll remind you in {seconds} seconds: {message}")
+
+    def _announce_background(self, message: str) -> None:
+        if self.state.closing:
+            return
+        asyncio.create_task(
+            self._send(ServerEvent("session.background.update", {"message": message}))
+        )
 
     def _queue_speech(self, text: str, *, transcript_sent: bool = False) -> bool:
         """Queue one utterance; the worker synthesizes and sends it serially."""

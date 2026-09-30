@@ -234,15 +234,17 @@ class SessionToolsTests(unittest.IsolatedAsyncioTestCase):
 
         notified = asyncio.Event()
         messages = []
+        started = []
 
         def notify(message):
             messages.append(message)
             notified.set()
             return True
 
-        tools = SessionTools(notify)
+        tools = SessionTools(notify, on_timer_started=lambda seconds, message: started.append((seconds, message)))
         result = await tools.execute("start_timer", {"seconds": 1, "message": "stretch"})
         self.assertIn("Timer started for 1 seconds", result)
+        self.assertEqual(started, [(1, "stretch")])
         await asyncio.wait_for(notified.wait(), timeout=2)
         self.assertEqual(messages, ["Timer finished: stretch"])
         await tools.close()

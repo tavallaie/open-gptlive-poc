@@ -329,12 +329,32 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         await session._utterance_task
 
         self.assertEqual(speaker.request, ("Task complete", "marin"))
-        self.assertEqual(websocket.sent[0]["type"], "session.output_transcript.delta")
-        self.assertEqual(websocket.sent[1]["type"], "session.output_audio.started")
-        self.assertEqual(websocket.sent[2]["type"], "session.output_audio.transcript")
-        self.assertEqual(websocket.sent[3]["type"], "session.output_audio.delta")
+        event_types = [event["type"] for event in websocket.sent]
+        self.assertLess(
+            event_types.index("session.output_transcript.delta"),
+            event_types.index("session.output_audio.started"),
+        )
+        self.assertLess(
+            event_types.index("session.output_audio.started"),
+            event_types.index("session.output_audio.transcript"),
+        )
+        self.assertLess(
+            event_types.index("session.output_audio.transcript"),
+            event_types.index("session.output_audio.delta"),
+        )
+        self.assertIn("session.background.update", event_types)
         self.assertFalse(session.handle_task_result("unknown", "Ignored"))
         self.assertFalse(session.handle_task_result("item_1", "Repeated"))
+
+    async def test_timer_start_announces_background_work_to_client(self) -> None:
+        websocket = FakeWebSocket()
+        session = LiveSession(websocket, self._settings(), lambda: None)
+
+        session._timer_started(30, "stretch")
+        await asyncio.sleep(0)
+
+        event = next(item for item in websocket.sent if item["type"] == "session.background.update")
+        self.assertEqual(event["message"], "I’ll remind you in 30 seconds: stretch")
 
     async def test_closing_session_rejects_task_callback(self) -> None:
         session = LiveSession(FakeWebSocket(), self._settings(), lambda: None)
