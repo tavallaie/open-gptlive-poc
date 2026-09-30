@@ -20,15 +20,25 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.vad_pause_ms, 700)
         self.assertEqual(settings.supertonic_voice_map, {"marin": "F1"})
         self.assertEqual(settings.router_provider, "gliner")
+        self.assertEqual(settings.gliner_task_threshold, 0.7)
         self.assertEqual(settings.delegation_db_path, ".gptlive-delegations.sqlite3")
 
-    def test_missing_required_values_are_reported(self) -> None:
-        with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):
+    def test_bearer_token_is_optional(self) -> None:
+        settings = Settings.from_env({
+            "GPTLIVE_SILERO_MODEL_PATH": "/models/silero.onnx",
+            "GPTLIVE_WHISPER_MODEL_PATH": "/models/whisper",
+            "GPTLIVE_GLINER_MODEL_PATH": "/models/GLiNER2.5-Decide",
+        })
+
+        self.assertIsNone(settings.bearer_token)
+
+    def test_missing_required_model_values_are_reported(self) -> None:
+        with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_SILERO_MODEL_PATH"):
             Settings.from_env({})
 
     def test_empty_environment_mapping_does_not_use_process_environment(self) -> None:
         with patch.dict("os.environ", VALID_ENV):
-            with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):
+            with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_SILERO_MODEL_PATH"):
                 Settings.from_env({})
 
     def test_invalid_threshold_is_rejected(self) -> None:

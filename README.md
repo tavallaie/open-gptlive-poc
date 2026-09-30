@@ -69,16 +69,31 @@ submitted to the external task system.
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+Run the server and browser voice UI together (WebSocket support is included in
+the project dependencies):
+
+```bash
+uv run --env-file .env uvicorn --app-dir src open_gptlive_poc.server:app --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000> and choose **Start talking**. If
+`GPTLIVE_BEARER_TOKEN` is set, enter that value under **Connection settings**;
+if unset or empty, authentication is disabled and no token is needed. Keep the
+server bound to localhost when running without a token. The page is served by
+the same FastAPI app as `/v1/live/sessions`.
+
 Configuration is loaded from `GPTLIVE_*` environment variables. Required
 credentials and local model paths must remain outside the repository.
 
-The server writes structured JSON logs to stderr through Loguru. Each live
-turn is correlated with `session_id` and `turn_id`; logs include VAD, ASR,
-GLiNER routing labels/decisions, LM Studio timing/cancellation, TTS, and tool
-lifecycle events without recording audio, credentials, or transcript contents.
-Set `GPTLIVE_LOG_LEVEL=DEBUG` for audio-queue diagnostics; the default is
-`INFO`. To also persist logs, set `GPTLIVE_LOG_FILE=.gptlive-logs/server.jsonl`;
-the file sink rotates at 10 MB and keeps seven days of logs.
+The server writes structured JSON logs by default to
+`.gptlive-logs/server.jsonl` (rotated at 10 MB, retained for seven days). The
+terminal shows warnings and errors only; set `GPTLIVE_CONSOLE_LOG_LEVEL=INFO`
+to show concise routine logs, or `DEBUG` for audio-queue diagnostics. Set
+`GPTLIVE_LOG_LEVEL=DEBUG` to include debug records in the file too. Set
+`GPTLIVE_LOG_FILE` to change the path, or to an empty value to disable the file
+sink. Logs correlate turns with `session_id` and `turn_id` and include VAD,
+ASR, routing, LM Studio, TTS, and tool lifecycle events without recording
+audio, credentials, or transcript contents.
 To see why a turn did not reach the model, inspect `Router decision` first:
 its `talk`, `task`, `wait_for_user`, and `interrupt_current` fields explain the
 branch. A model call should then produce `Starting LM Studio reply`, followed

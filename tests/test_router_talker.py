@@ -70,6 +70,44 @@ class RouterTests(unittest.TestCase):
         self.assertFalse(decision.task)
         self.assertTrue(decision.talk)
 
+    def test_ambiguous_wait_score_does_not_hold_back_normal_utterance(self):
+        model = FakeGLiNER({
+            "needs_task": {"task": 0.1, "no_task": 0.9},
+            "kind": {"chat": 0.8},
+            "response": {"talk": 0.9},
+            "turn_state": {"wait_for_user": 0.53, "ready_to_process": 0.47},
+        })
+
+        decision = GLiNERRouter("unused", model=model).classify("Hi")
+
+        self.assertFalse(decision.wait_for_user)
+        self.assertTrue(decision.talk)
+
+    def test_ambiguous_task_and_interrupt_scores_do_not_change_normal_chat(self):
+        model = FakeGLiNER({
+            "needs_task": {"task": 0.53, "no_task": 0.47},
+            "kind": {"chat": 0.36, "task": 0.36, "function_call": 0.28},
+            "response": {"talk": 0.42, "task": 0.34, "both": 0.24},
+            "interrupt": {"interrupt_current_response": 0.53, "continue_current_response": 0.47},
+        })
+
+        decision = GLiNERRouter("unused", model=model).classify("Explain AI to me.")
+
+        self.assertFalse(decision.task)
+        self.assertFalse(decision.interrupt_current)
+
+    def test_explicit_no_is_an_interruption_even_with_ambiguous_model_score(self):
+        model = FakeGLiNER({
+            "needs_task": {"task": 0.1, "no_task": 0.9},
+            "kind": {"chat": 0.9},
+            "response": {"talk": 0.9},
+            "interrupt": {"interrupt_current_response": 0.53, "continue_current_response": 0.47},
+        })
+
+        decision = GLiNERRouter("unused", model=model).classify("No, I mean the difference between AI and LLM.")
+
+        self.assertTrue(decision.interrupt_current)
+
     def test_laya_decision_uses_typed_answers(self):
         class FakeLaya:
             def __init__(self):

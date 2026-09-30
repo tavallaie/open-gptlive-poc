@@ -43,6 +43,14 @@ _MAX_HISTORY_TURNS = 20
 _MAX_PENDING_TRANSCRIPT_WORDS = 500
 _OUTPUT_AUDIO_CHUNK_BYTES = 4_800
 _USAGE_UPDATE_INTERVAL_SECONDS = 60
+_DEFAULT_VOICE_INSTRUCTIONS = (
+    "You are a helpful, natural voice conversation partner. Respond to the user's latest meaning, "
+    "including corrections and clarifications, and use the conversation history for context. "
+    "Speak plainly and warmly, usually in one or two concise sentences. Use natural spoken language; "
+    "avoid headings, bullets, markdown, long lists, and needless repetition. Ask a brief clarifying "
+    "question when the request is genuinely ambiguous. Do not narrate that you are thinking or "
+    "listening, and do not invent actions or facts."
+)
 
 
 @dataclass(slots=True)
@@ -82,6 +90,7 @@ class LiveSession:
         self._utterance_task: asyncio.Task[None] | None = None
         self._turn_tasks: set[asyncio.Task[None]] = set()
         self._reply_task: asyncio.Task[str] | None = None
+        self._pending_assistant_reply: str | None = None
         self._routing_lock = asyncio.Lock()
         self._can_speak = asyncio.Event()
         self._can_speak.set()
@@ -251,9 +260,7 @@ class LiveSession:
                 if event.type == "speech_started":
                     self.state.speech_start_ms = event.offset_ms
                     self._can_speak.clear()
-                    self.log.info("User speech started; pausing assistant playback", offset_ms=event.offset_ms)
-                    self._cancel_speech()
-                    await self._send(ServerEvent("session.output_audio.cancelled"))
+                    self.log.info("User speech started; pausing assistant audio until routed", offset_ms=event.offset_ms)
                 elif event.type == "speech_stopped":
                     self.log.info("User speech stopped", offset_ms=event.offset_ms)
                     stopped_at = event.offset_ms
@@ -357,21 +364,33 @@ class LiveSession:
                 self.log.info("GLiNER classified a barge-in; cancelling active response")
                 self._cancel_response()
                 self._cancel_speech()
+                await self._send(ServerEvent("session.output_audio.cancelled"))
+                self._pending_assistant_reply = None
             else:
+                if self._pending_assistant_reply is not None:
+                    self.state.history.append(TranscriptTurn("assistant", self._pending_assistant_reply))
+                    del self.state.history[:-_MAX_HISTORY_TURNS]
+                    self._pending_assistant_reply = None
                 active_reply = self._reply_task
                 if active_reply is not None and not active_reply.done():
                     self._resume_speech()
                     await active_reply
+                    if self._pending_assistant_reply is not None:
+                        self.state.history.append(TranscriptTurn("assistant", self._pending_assistant_reply))
+                        del self.state.history[:-_MAX_HISTORY_TURNS]
+                        self._pending_assistant_reply = None
             self._resume_speech()
             if decision.talk:
                 self.log.info("Starting LM Studio reply", transcript_chars=len(transcript), tool_count=len(self._tools.schemas) if self._tools else 0)
                 request = TalkRequest(
                     transcript=transcript,
-                    instructions=tuple(self.state.instructions),
+                    instructions=(_DEFAULT_VOICE_INSTRUCTIONS, *self.state.instructions),
                     thinking=tuple(self.state.thinking),
                     history=tuple(self.state.history),
                     tools=self._tools,
                 )
+                self.state.history.append(TranscriptTurn("user", transcript))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
                 reply_task = asyncio.create_task(self._reply(request))
                 self._reply_task = reply_task
                 try:
@@ -382,9 +401,8 @@ class LiveSession:
                 finally:
                     if self._reply_task is reply_task:
                         self._reply_task = None
-                self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
-                del self.state.history[:-_MAX_HISTORY_TURNS]
-                self.state.transcripts.extend((transcript, reply))
+                self._pending_assistant_reply = reply
+                self.state.transcripts.append(transcript)
                 self.log.info("LM Studio reply completed", reply_chars=len(reply))
             else:
                 self.log.info("Talker skipped by router", task=decision.task, kind=decision.kind)
@@ -398,13 +416,15 @@ class LiveSession:
                     await self._create_task(transcript, decision, delegation_id)
                 except Exception:
                     self.state.delegation_ids.discard(delegation_id)
-                    raise
-                await self._send(
-                    ServerEvent(
-                        "session.delegation.created",
-                        {"delegation_id": delegation_id, "target": "client"},
+                    self.log.exception("Task dispatch failed", delegation_id=delegation_id)
+                    await self._send_error("task_dispatch_failed", "Task service is unavailable")
+                else:
+                    await self._send(
+                        ServerEvent(
+                            "session.delegation.created",
+                            {"delegation_id": delegation_id, "target": "client"},
+                        )
                     )
-                )
         except Exception:
             self.log.exception("Transcript routing failed")
             await self._send_error("internal_error", "Session adapter failed")
@@ -529,7 +549,17 @@ class LiveSession:
                     audio_bytes=len(audio),
                     cancelled=cancellation.is_set(),
                 )
+                start_ms = self.state.output_audio_ms
+                end_ms = start_ms + len(audio) // 48
+                await self._can_speak.wait()
+                await self._send(
+                    ServerEvent(
+                        "session.output_audio.transcript",
+                        {"text": text, "start_ms": start_ms, "end_ms": end_ms},
+                    )
+                )
                 for offset in range(0, len(audio), _OUTPUT_AUDIO_CHUNK_BYTES):
+                    await self._can_speak.wait()
                     chunk = audio[offset : offset + _OUTPUT_AUDIO_CHUNK_BYTES]
                     start_ms = self.state.output_audio_ms
                     end_ms = start_ms + len(chunk) // 48

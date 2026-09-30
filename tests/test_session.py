@@ -90,9 +90,10 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0.01)
         await session._append_audio(frame)
-        self.assertIn("session.output_audio.cancelled", [event["type"] for event in websocket.sent])
+        self.assertNotIn("session.output_audio.cancelled", [event["type"] for event in websocket.sent])
         await session._append_audio(frame)
         await asyncio.wait_for(talker.cancelled.wait(), timeout=1)
+        self.assertIn("session.output_audio.cancelled", [event["type"] for event in websocket.sent])
 
         await session.close("test_complete")
 
@@ -131,6 +132,34 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(router.calls, ["Hmm, I think we should", "Hmm, I think we should make it agentic."])
         self.assertEqual(talker.requests, ["Hmm, I think we should make it agentic."])
 
+    async def test_interrupted_unplayed_reply_is_not_added_to_next_llm_context(self):
+        class Router:
+            calls = 0
+
+            def classify(self, transcript):
+                self.calls += 1
+                return RouteDecision(transcript, 0.0, "chat", True, {}, interrupt_current=self.calls == 2)
+
+        class Talker:
+            requests = []
+
+            async def reply(self, request):
+                self.requests.append(request)
+                return "An answer that was never fully played." if len(self.requests) == 1 else "Corrected answer."
+
+        session = LiveSession(FakeWebSocket(), self._settings(), lambda: None)
+        session.ports = type("Ports", (), {
+            "router": Router(), "talker": Talker(), "speaker": object(), "tasks": object(), "vad": object()
+        })()
+
+        await session.handle_transcript("Explain AI to me.")
+        await session.handle_transcript("No, I mean the difference between AI and LLM.")
+
+        self.assertEqual(
+            [(turn.role, turn.text) for turn in Talker.requests[1].history],
+            [("user", "Explain AI to me.")],
+        )
+
     async def test_talker_reply_is_spoken_as_timed_audio_after_transcript(self) -> None:
         class Router:
             def classify(self, transcript):
@@ -163,11 +192,12 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
             [
                 "session.output_transcript.delta",
                 "session.output_audio.started",
+                "session.output_audio.transcript",
                 "session.output_audio.delta",
             ],
         )
-        self.assertEqual(len(base64.b64decode(websocket.sent[2]["delta"])), 4_800)
-        self.assertEqual(websocket.sent[2]["end_ms"] - websocket.sent[2]["start_ms"], 100)
+        self.assertEqual(len(base64.b64decode(websocket.sent[3]["delta"])), 4_800)
+        self.assertEqual(websocket.sent[3]["end_ms"] - websocket.sent[3]["start_ms"], 100)
 
     async def test_speech_starts_before_streaming_text_generation_finishes(self) -> None:
         complete_sentence = asyncio.Event()
@@ -301,7 +331,8 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(speaker.request, ("Task complete", "marin"))
         self.assertEqual(websocket.sent[0]["type"], "session.output_transcript.delta")
         self.assertEqual(websocket.sent[1]["type"], "session.output_audio.started")
-        self.assertEqual(websocket.sent[2]["type"], "session.output_audio.delta")
+        self.assertEqual(websocket.sent[2]["type"], "session.output_audio.transcript")
+        self.assertEqual(websocket.sent[3]["type"], "session.output_audio.delta")
         self.assertFalse(session.handle_task_result("unknown", "Ignored"))
         self.assertFalse(session.handle_task_result("item_1", "Repeated"))
 
@@ -341,6 +372,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.sent[1]["type"], "session.delegation.created")
         self.assertEqual(tasks.request[2:], ("Do it", {"kind": "task"}))
         self.assertEqual(talker.request.transcript, "Do it")
+        self.assertIn("natural voice conversation partner", talker.request.instructions[0])
         self.assertEqual(websocket.sent[1]["delegation_id"], tasks.request[0])
 
     async def test_transcript_adapter_failure_is_recoverable(self) -> None:
@@ -376,7 +408,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         await session.handle_transcript("Do it")
 
-        self.assertEqual(websocket.sent[-1]["error"]["code"], "internal_error")
+        self.assertEqual(websocket.sent[-1]["error"]["code"], "task_dispatch_failed")
         self.assertFalse(session.state.delegation_ids)
         self.assertFalse(any(event["type"] == "session.delegation.created" for event in websocket.sent))
 

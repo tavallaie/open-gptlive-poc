@@ -34,7 +34,7 @@ class Settings:
     tasks_url: str = "http://127.0.0.1:8080/tasks"
     delegation_db_path: str = ".gptlive-delegations.sqlite3"
     vad_pause_ms: int = 700
-    gliner_task_threshold: float = 0.5
+    gliner_task_threshold: float = 0.7
     max_session_duration_s: int = 3600
 
     @classmethod
@@ -74,7 +74,6 @@ class Settings:
         if self.router_provider not in {"gliner", "laya"}:
             raise ConfigurationError("GPTLIVE_ROUTER_PROVIDER must be gliner or laya")
         required = {
-            "GPTLIVE_BEARER_TOKEN": self.bearer_token,
             "GPTLIVE_SILERO_MODEL_PATH": self.silero_model_path,
             "GPTLIVE_WHISPER_MODEL_PATH": self.whisper_model_path,
         }

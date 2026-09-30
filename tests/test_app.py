@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -23,6 +24,32 @@ class AppTests(unittest.TestCase):
             gliner_model_path="gliner",
             delegation_db_path=str(Path(self.temp_directory.name) / "delegations.sqlite3"),
         )
+
+    def test_voice_demo_is_served_by_main_app(self) -> None:
+        app = create_app(self._settings())
+        with TestClient(app) as client:
+            response = client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Open GPT Live", response.text)
+        self.assertIn('id="token"', response.text)
+
+    def test_browser_websocket_authenticates_before_starting_session(self) -> None:
+        app = create_app(self._settings())
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws/live") as websocket:
+                websocket.send_json({"type": "auth", "token": "secret"})
+                self.assertEqual(websocket.receive_json(), {"type": "session.authenticated"})
+
+    def test_browser_and_api_websockets_allow_empty_configured_token(self) -> None:
+        app = create_app(replace(self._settings(), bearer_token=None))
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws/live") as browser:
+                browser.send_json({"type": "auth", "token": ""})
+                self.assertEqual(browser.receive_json(), {"type": "session.authenticated"})
+            with client.websocket_connect("/v1/live/sessions") as api:
+                api.send_json({"type": "session.start", "model": "gpt-live-1"})
+                self.assertEqual(api.receive_json()["type"], "session.started")
 
     def test_task_callback_authenticates_and_delivers_content(self) -> None:
         app = create_app(self._settings())

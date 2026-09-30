@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 import importlib.util
 from numbers import Real
 from pathlib import Path
+import re
 import sys
 from typing import Any, cast
 
@@ -19,6 +20,7 @@ _QUESTION = {
     "interrupt": ["interrupt_current_response", "continue_current_response"],
     "turn_state": ["wait_for_user", "ready_to_process"],
 }
+_WAIT_FOR_USER_THRESHOLD = 0.7
 
 
 class GLiNERRouter(Router):
@@ -29,7 +31,7 @@ class GLiNERRouter(Router):
         model_path: str,
         *,
         device: str = "cpu",
-        task_threshold: float = 0.5,
+        task_threshold: float = 0.7,
         model: Any | None = None,
         model_factory: Callable[[str], Any] | None = None,
     ) -> None:
@@ -52,12 +54,9 @@ class GLiNERRouter(Router):
         interrupt = interrupt_result is not None and _score(
             _label_confidence(interrupt_result),
             positive=("interrupt_current_response", "interrupt", "stop", "cancel", "yes", "true"),
-        ) >= self.task_threshold
-        turn_state = _choice(
-            _label_confidence(result.get("turn_state")),
-            ("wait_for_user", "ready_to_process"),
-            "ready_to_process",
-        )
+        ) >= max(self.task_threshold, _WAIT_FOR_USER_THRESHOLD)
+        interrupt = interrupt or _has_explicit_interruption(transcript)
+        wait_for_user = _is_wait_for_user(result.get("turn_state"))
         task = needs_task >= self.task_threshold
         talk = not task or kind in {"chat", "function_call"} or response in {"talk", "both"}
         return RouteDecision(
@@ -68,7 +67,7 @@ class GLiNERRouter(Router):
             labels=dict(result),
             task_threshold=self.task_threshold,
             interrupt_current=interrupt,
-            wait_for_user=turn_state == "wait_for_user",
+            wait_for_user=wait_for_user,
         )
 
     @staticmethod
@@ -155,3 +154,23 @@ def _choice(value: object, choices: tuple[str, ...], default: str) -> str:
         if scores:
             return max((choice for choice in choices if choice in scores), key=scores.get, default=default)
     return default
+
+
+def _is_wait_for_user(value: object) -> bool:
+    """Wait only when GLiNER is confident the utterance is incomplete."""
+    value = _label_confidence(value)
+    if isinstance(value, Mapping):
+        score = value.get("wait_for_user")
+        return isinstance(score, Real) and float(score) >= _WAIT_FOR_USER_THRESHOLD
+    if isinstance(value, (tuple, list)) and value and isinstance(value[0], str):
+        return (
+            value[0] == "wait_for_user"
+            and len(value) > 1
+            and isinstance(value[1], Real)
+            and float(value[1]) >= _WAIT_FOR_USER_THRESHOLD
+        )
+    return value == "wait_for_user"
+
+
+def _has_explicit_interruption(transcript: str) -> bool:
+    return re.search(r"\b(no|stop|wait|hold on|I mean)\b", transcript, re.IGNORECASE) is not None

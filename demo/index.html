@@ -23,17 +23,19 @@
     .eyebrow { color: #d5a7d0; text-transform: uppercase; letter-spacing: .19em; font-size: .7rem; font-weight: 700; }
     h1 { margin: 11px 0 8px; font-size: clamp(2.15rem, 5vw, 3.15rem); line-height: 1.1; letter-spacing: -.055em; font-weight: 560; }
     .subtitle { margin: 0; color: #a6a2b1; font-size: .98rem; }
-    .visual-stage { position: relative; width: min(100%, 700px); height: 292px; display: grid; place-items: center; margin: 20px auto 0; isolation: isolate; }
+    .visual-stage { position: relative; width: min(100%, 700px); height: 292px; display: grid; place-items: center; margin: 20px auto 0; isolation: isolate; --orb-scale: 1; }
     .glow { position: absolute; width: 210px; height: 210px; border-radius: 50%; background: #b68de92b; filter: blur(50px); transition: transform .4s, background .4s; z-index: -1; }
-    .orb { position: absolute; width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #ffd1df 0, #e1a7d8 17%, #a486e0 47%, #58599a 78%, #23243f 100%); box-shadow: inset -12px -17px 30px #25244270, inset 9px 9px 24px #fff5, 0 0 42px #c59bea45; opacity: .74; transform: scale(.96); transition: opacity .3s, transform .3s, filter .3s; }
+    .orb { position: absolute; width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #ffd1df 0, #e1a7d8 17%, #a486e0 47%, #58599a 78%, #23243f 100%); box-shadow: inset -12px -17px 30px #25244270, inset 9px 9px 24px #fff5, 0 0 42px #c59bea45; opacity: .74; transform: scale(calc(.96 * var(--orb-scale))); transition: opacity .3s, transform .16s ease-out, filter .3s; }
     .visual-stage[data-state="listening"] .orb { animation: breathe 2.8s ease-in-out infinite; }
     .visual-stage[data-state="thinking"] .orb { opacity: .9; filter: hue-rotate(28deg); animation: think 1.8s ease-in-out infinite; }
-    .visual-stage[data-state="speaking"] .orb { opacity: 1; filter: saturate(1.3); transform: scale(1.08); }
+    .visual-stage[data-state="speaking"] .orb { opacity: 1; filter: saturate(1.3); }
     .visual-stage[data-state="speaking"] .glow { background: #e4a8dc50; transform: scale(1.35); }
-    .bars { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 5px; pointer-events: none; }
-    .bars span { display: block; width: 4px; height: 9px; border-radius: 8px; background: linear-gradient(180deg, #f1c0d4, #b6a0f0); opacity: .85; transform: translateZ(0); transition: height 75ms linear; }
-    .visual-stage[data-state="idle"] .bars span { opacity: .25; }
-    .visual-stage[data-state="listening"] .bars span { animation: idle-wave 1.3s ease-in-out infinite alternate; }
+    .bars { position: absolute; left: 50%; top: 50%; width: 228px; height: 228px; border: 1px solid #e6c4ef14; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%) scale(calc(.96 * var(--orb-scale))); transition: transform .18s ease-out, width .3s, height .3s, border-color .3s; }
+    .bars span { position: absolute; left: 50%; top: 50%; display: block; width: 3px; height: 7px; border-radius: 8px; background: linear-gradient(180deg, #f1c0d4, #b6a0f0); opacity: .2; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-112px); transform-origin: center; transition: height 65ms linear, opacity 65ms linear; }
+    .visual-stage[data-state="listening"] { --orb-scale: 1.04; }
+    .visual-stage[data-state="thinking"] { --orb-scale: .94; }
+    .visual-stage[data-state="speaking"] { --orb-scale: 1.12; }
+    .visual-stage[data-state="speaking"] .bars { border-color: #e6c4ef35; }
     .mode { margin-top: -2px; min-height: 25px; color: #d5d0df; font-size: .86rem; letter-spacing: .015em; }
     .controls { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; }
     .connect { min-width: 190px; height: 54px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; color: #17131c; background: linear-gradient(110deg, #f4c1d4, #c7aff4); font-weight: 700; box-shadow: 0 8px 30px #bd9ce52c; transition: transform .2s, filter .2s, box-shadow .2s; }
@@ -46,6 +48,11 @@
     .try-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin: 28px 0 0; }
     .try-label { width: 100%; margin-bottom: 2px; text-align: center; color: #858190; font-size: .75rem; }
     .prompt { padding: 8px 13px; border: 1px solid #ffffff13; border-radius: 999px; color: #c1bdca; background: #ffffff06; font-size: .78rem; }
+    .token-settings { width: min(100%, 420px); margin: 24px auto 0; color: #aaa6b4; font-size: .8rem; }
+    .token-settings summary { width: fit-content; margin: auto; cursor: pointer; }
+    .token-settings label { display: block; margin: 12px 0 5px; }
+    .token-settings input { width: 100%; padding: 10px 12px; border: 1px solid #ffffff20; border-radius: 9px; background: #ffffff09; color: #f4f1f8; font: inherit; }
+    .token-settings small { display: block; margin-top: 6px; color: #858190; }
     .conversation { width: min(100%, 680px); margin-top: 40px; border: 1px solid #ffffff14; border-radius: 18px; background: linear-gradient(145deg, #ffffff08, #ffffff03); overflow: hidden; }
     .conversation-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 17px; border-bottom: 1px solid #ffffff10; color: #aaa6b4; font-size: .76rem; letter-spacing: .03em; }
     .live-caption { color: #8c8797; font-size: .7rem; }
@@ -59,8 +66,7 @@
     .audio-note svg { width: 14px; opacity: .7; }
     @keyframes breathe { 0%,100% { transform: scale(.96); } 50% { transform: scale(1.025); } }
     @keyframes think { 0%,100% { transform: scale(.93); } 50% { transform: scale(1.04); } }
-    @keyframes idle-wave { from { height: 5px; opacity: .33; } to { height: 12px; opacity: .7; } }
-    @media (max-width: 600px) { .shell { width: min(100% - 28px, 1040px); } header { height: 68px; } main { padding-top: 42px; } .visual-stage { height: 250px; margin-top: 12px; } .orb { width: 126px; height: 126px; } .bars { gap: 3px; } .bars span { width: 3px; } .conversation { margin-top: 30px; } footer { align-items: flex-start; flex-direction: column; justify-content: center; padding: 12px 0; } }
+    @media (max-width: 600px) { .shell { width: min(100% - 28px, 1040px); } header { height: 68px; } main { padding-top: 42px; } .visual-stage { height: 250px; margin-top: 12px; } .orb { width: 126px; height: 126px; } .bars { width: 204px; height: 204px; } .bars span { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-100px); } .conversation { margin-top: 30px; } footer { align-items: flex-start; flex-direction: column; justify-content: center; padding: 12px 0; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
   </style>
 </head>
@@ -89,6 +95,12 @@
         <span class="prompt">“What time is it?”</span>
         <span class="prompt">“Remind me in 10 seconds to stretch.”</span>
       </div>
+      <details class="token-settings" open>
+        <summary>Connection settings</summary>
+        <label for="token">Server bearer token (optional)</label>
+        <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="GPTLIVE_BEARER_TOKEN">
+        <small>Only needed when GPTLIVE_BEARER_TOKEN is set in the server environment. Kept in page memory.</small>
+      </details>
       <section class="conversation" aria-label="Conversation transcript">
         <div class="conversation-head"><span>CONVERSATION</span><span class="live-caption">Live transcript</span></div>
         <div id="transcript" aria-live="polite"></div>
@@ -106,20 +118,25 @@
     const connection = document.querySelector("#connection");
     const connectionLabel = document.querySelector("#connection-label");
     const bars = document.querySelector("#bars");
+    const tokenInput = document.querySelector("#token");
     let socket, stream, audioContext, source, processor, silence;
-    let analyser, visualFrame, playbackIdleTimer;
+    let analyser, inputAnalyser, visualFrame, playbackIdleTimer;
     let playbackAt = 0;
     const audioQueue = [];
     const activePlayers = new Set();
+    const playbackMappings = [];
+    const assistantSegments = [];
     let queuedAudioSeconds = 0;
     let playbackStarted = false;
     let audioBufferTimer;
     const PLAYBACK_BUFFER_SECONDS = 0.2;
     const PLAYBACK_BUFFER_TIMEOUT_MS = 100;
 
-    let currentLine = null;
-    for (let index = 0; index < 40; index += 1) {
+    let currentLine = null, assistantLine = null, assistantContent = null;
+    let displayedAssistantText = "";
+    for (let index = 0; index < 48; index += 1) {
       const bar = document.createElement("span");
+      bar.style.setProperty("--angle", `${index * 360 / 48}deg`);
       bar.style.animationDelay = `${index * 23}ms`;
       bars.append(bar);
     }
@@ -131,9 +148,9 @@
       visualStage.dataset.state = state;
     }
 
-    function appendTranscript(role, text) {
+    function appendTranscript(role, text, newLine = false) {
       if (!text) return;
-      if (transcript.dataset.role !== role) {
+      if (newLine || transcript.dataset.role !== role) {
         currentLine = document.createElement("p");
         currentLine.className = "transcript-line";
         const speaker = document.createElement("span");
@@ -142,8 +159,79 @@
         currentLine.append(speaker);
         transcript.append(currentLine);
         transcript.dataset.role = role;
+        if (role === "Assistant") assistantLine = currentLine;
       }
       currentLine.append(document.createTextNode(text));
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function ensureAssistantLine() {
+      if (assistantLine?.isConnected && transcript.dataset.role === "Assistant") return;
+      currentLine = document.createElement("p");
+      currentLine.className = "transcript-line";
+      const speaker = document.createElement("span");
+      speaker.className = "assistant";
+      speaker.textContent = "Assistant: ";
+      assistantContent = document.createElement("span");
+      currentLine.append(speaker, assistantContent);
+      transcript.append(currentLine);
+      transcript.dataset.role = "Assistant";
+      assistantLine = currentLine;
+      displayedAssistantText = "";
+    }
+
+    function playbackTimeFor(audioOffsetMs) {
+      // Prefer the chunk that starts at a shared boundary, not the one that
+      // just ended. This matters when one spoken sentence ends exactly where
+      // the next sentence begins.
+      const mapping = playbackMappings.find(item => audioOffsetMs >= item.audioStartMs && audioOffsetMs < item.audioEndMs)
+        ?? playbackMappings.find(item => audioOffsetMs === item.audioEndMs);
+      if (!mapping) return null;
+      const audioSpan = mapping.audioEndMs - mapping.audioStartMs;
+      const fraction = audioSpan ? (audioOffsetMs - mapping.audioStartMs) / audioSpan : 0;
+      return mapping.playbackStart + fraction * (mapping.playbackEnd - mapping.playbackStart);
+    }
+
+    function renderPlayedAssistantText(createLine = true) {
+      if (!audioContext || assistantSegments.length === 0) return;
+      const now = audioContext.currentTime;
+      const visible = [];
+      for (const segment of assistantSegments) {
+        const start = playbackTimeFor(segment.startMs);
+        if (start === null) continue;
+        const duration = Math.max(0.001, (segment.endMs - segment.startMs) / 1000);
+        const progress = Math.max(0, Math.min(1, (now - start) / duration));
+        let count = Math.floor(segment.text.length * progress);
+        if (progress < 1) {
+          while (count > 0 && count < segment.text.length && !/\s/.test(segment.text[count])) count -= 1;
+        }
+        const played = segment.text.slice(0, count).trimEnd();
+        if (played) visible.push(played);
+      }
+      const text = visible.join(" ");
+      if (text === displayedAssistantText) return;
+      if (!text) {
+        if (!createLine && assistantContent) assistantLine.remove();
+        return;
+      }
+      if (!assistantContent && !createLine) return;
+      if (!assistantContent) ensureAssistantLine();
+      assistantContent.textContent = text;
+      displayedAssistantText = text;
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function revealCompletedSpeech(audioEndMs) {
+      const completed = assistantSegments
+        .filter(segment => segment.endMs <= audioEndMs)
+        .map(segment => segment.text.trim())
+        .filter(Boolean);
+      if (!completed.length) return;
+      const text = completed.join(" ");
+      if (text === displayedAssistantText) return;
+      ensureAssistantLine();
+      assistantContent.textContent = text;
+      displayedAssistantText = text;
       transcript.scrollTop = transcript.scrollHeight;
     }
 
@@ -155,7 +243,7 @@
       socket.send(JSON.stringify({type: "session.input_audio.append", audio: btoa(binary)}));
     }
 
-    function playAudio(encoded) {
+    function playAudio(encoded, startMs, endMs) {
       const binary = atob(encoded);
       const samples = new Int16Array(binary.length / 2);
       for (let i = 0; i < samples.length; i += 1) {
@@ -165,7 +253,7 @@
       const buffer = audioContext.createBuffer(1, samples.length, 24000);
       const channel = buffer.getChannelData(0);
       for (let i = 0; i < samples.length; i += 1) channel[i] = samples[i] / 32768;
-      audioQueue.push(buffer);
+      audioQueue.push({buffer, startMs, endMs});
       queuedAudioSeconds += buffer.duration;
       if (!playbackStarted && queuedAudioSeconds < PLAYBACK_BUFFER_SECONDS) {
         audioBufferTimer ??= setTimeout(() => {
@@ -184,14 +272,27 @@
       audioBufferTimer = null;
       playbackAt = Math.max(playbackAt, audioContext.currentTime + 0.03);
       while (audioQueue.length) {
-        const buffer = audioQueue.shift();
+        const queued = audioQueue.shift();
+        const buffer = queued.buffer;
         const player = audioContext.createBufferSource();
         player.buffer = buffer;
         player.connect(analyser);
         activePlayers.add(player);
-        player.onended = () => activePlayers.delete(player);
-        player.start(playbackAt);
+        player.onended = () => {
+          activePlayers.delete(player);
+          // Keep the transcript in sync with what the browser actually
+          // finished playing, even if a timestamp rounding edge was hit.
+          revealCompletedSpeech(queued.endMs);
+        };
+        const playbackStart = playbackAt;
+        player.start(playbackStart);
         playbackAt += buffer.duration;
+        playbackMappings.push({
+          audioStartMs: queued.startMs,
+          audioEndMs: queued.endMs,
+          playbackStart,
+          playbackEnd: playbackAt,
+        });
         queuedAudioSeconds -= buffer.duration;
       }
       clearTimeout(playbackIdleTimer);
@@ -212,6 +313,7 @@
       }
       activePlayers.clear();
       audioQueue.length = 0;
+      playbackMappings.length = 0;
       queuedAudioSeconds = 0;
       playbackStarted = false;
       playbackAt = audioContext?.currentTime ?? 0;
@@ -224,20 +326,29 @@
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.input_transcript.delta") {
-        appendTranscript("You", event.text ?? event.delta ?? "");
+        appendTranscript("You", event.text ?? event.delta ?? "", true);
         setMode("Thinking about what you said…", "thinking");
       }
       if (event.type === "session.output_transcript.delta") {
-        appendTranscript("Assistant", event.text ?? event.delta ?? "");
         setMode("Putting a reply together…", "thinking");
+      }
+      if (event.type === "session.output_audio.transcript") {
+        if (transcript.dataset.role === "You") assistantSegments.length = 0;
+        assistantSegments.push({text: event.text, startMs: event.start_ms, endMs: event.end_ms});
+        renderPlayedAssistantText();
       }
       if (event.type === "session.output_audio.started") setMode("Preparing a voice reply…", "thinking");
       if (event.type === "session.output_audio.delta") {
-        playAudio(event.delta ?? event.audio ?? "");
+        playAudio(event.delta ?? event.audio ?? "", event.start_ms, event.end_ms);
         setMode("Speaking", "speaking");
       }
       if (event.type === "session.output_audio.cancelled") {
+        renderPlayedAssistantText(false);
         cancelPlayback();
+        assistantSegments.length = 0;
+        assistantLine = null;
+        assistantContent = null;
+        displayedAssistantText = "";
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.delegation.created") setMode("Working on that…", "thinking");
@@ -246,12 +357,16 @@
     }
 
     async function startLocalAudio() {
-      audioContext = new AudioContext({sampleRate: 24000});
+      audioContext ??= new AudioContext({sampleRate: 24000});
+      await audioContext.resume();
       if (audioContext.sampleRate !== 24000) throw new Error("This browser could not create 24 kHz audio.");
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 128;
       analyser.smoothingTimeConstant = 0.78;
       analyser.connect(audioContext.destination);
+      inputAnalyser = audioContext.createAnalyser();
+      inputAnalyser.fftSize = 128;
+      inputAnalyser.smoothingTimeConstant = 0.72;
       animateVisualizer();
       const sourceText = `
         class PCMStreamer extends AudioWorkletProcessor {
@@ -277,6 +392,7 @@
       try { await audioContext.audioWorklet.addModule(moduleUrl); }
       finally { URL.revokeObjectURL(moduleUrl); }
       source = audioContext.createMediaStreamSource(stream);
+      source.connect(inputAnalyser);
       processor = new AudioWorkletNode(audioContext, "pcm-streamer");
       silence = audioContext.createGain();
       silence.gain.value = 0;
@@ -290,18 +406,24 @@
       audioContext?.close();
       processor = source = silence = stream = audioContext = null;
       analyser = null;
+      inputAnalyser = null;
       cancelAnimationFrame(visualFrame);
       clearTimeout(playbackIdleTimer);
       playbackIdleTimer = null;
       clearTimeout(audioBufferTimer);
       audioBufferTimer = null;
       audioQueue.length = 0;
+      playbackMappings.length = 0;
+      assistantSegments.length = 0;
       activePlayers.clear();
       queuedAudioSeconds = 0;
       playbackStarted = false;
       transcript.textContent = "";
       delete transcript.dataset.role;
       currentLine = null;
+      assistantLine = null;
+      assistantContent = null;
+      displayedAssistantText = "";
       playbackAt = 0;
       visualStage.dataset.state = "idle";
       connection.dataset.connected = "false";
@@ -312,15 +434,19 @@
     }
 
     function animateVisualizer() {
-      const spectrum = new Uint8Array(analyser.frequencyBinCount);
+      const outputSpectrum = new Uint8Array(analyser.frequencyBinCount);
+      const inputSpectrum = new Uint8Array(inputAnalyser.frequencyBinCount);
       function draw() {
-        if (!analyser) return;
-        analyser.getByteFrequencyData(spectrum);
+        if (!analyser || !inputAnalyser) return;
+        analyser.getByteFrequencyData(outputSpectrum);
+        inputAnalyser.getByteFrequencyData(inputSpectrum);
         for (let index = 0; index < bars.children.length; index += 1) {
-          const level = spectrum[Math.floor(index * spectrum.length / bars.children.length)] / 255;
-          bars.children[index].style.height = `${4 + level * 104}px`;
-          bars.children[index].style.opacity = `${0.3 + level * 0.7}`;
+          const bin = Math.floor(index * outputSpectrum.length / bars.children.length);
+          const level = Math.max(outputSpectrum[bin], inputSpectrum[bin]) / 255;
+          bars.children[index].style.height = `${5 + level * 38}px`;
+          bars.children[index].style.opacity = `${0.2 + level * 0.8}`;
         }
+        renderPlayedAssistantText();
         visualFrame = requestAnimationFrame(draw);
       }
       draw();
@@ -330,25 +456,43 @@
       connectButton.disabled = true;
       setMode("Connecting to your assistant…", "thinking");
       try {
+        const token = tokenInput.value.trim();
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone access requires HTTPS or localhost in a supported browser.");
+        audioContext = new AudioContext({sampleRate: 24000});
         stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1}});
         await new Promise((resolve, reject) => {
           socket = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/live`);
           socket.onopen = () => {
-            socket.send(JSON.stringify({
-              type: "session.start", event_id: "browser_start", model: "gpt-live-1",
-              audio: {format: {encoding: "pcm16le", sample_rate: 24000, channels: 1}}
-            }));
-            disconnectButton.disabled = false;
-            resolve();
+            socket.send(JSON.stringify({type: "auth", token}));
           };
-          socket.onmessage = ({data}) => handleEvent(JSON.parse(data));
+          socket.onmessage = ({data}) => {
+            const event = JSON.parse(data);
+            if (event.type === "session.authenticated") {
+              socket.send(JSON.stringify({
+                type: "session.start", event_id: "browser_start", model: "gpt-live-1",
+                audio: {format: {encoding: "pcm16le", sample_rate: 24000, channels: 1}}
+              }));
+              disconnectButton.disabled = false;
+              resolve();
+              return;
+            }
+            handleEvent(event);
+          };
           socket.onerror = () => reject(new Error("WebSocket connection failed."));
-          socket.onclose = event => stopLocalAudio(event.reason || "Disconnected.");
+          socket.onclose = event => {
+            reject(new Error(event.reason || "WebSocket closed before authentication."));
+            stopLocalAudio(event.reason || "Disconnected.");
+          };
         });
         await startLocalAudio();
       } catch (error) {
         socket?.close();
-        stopLocalAudio(error.message || "Could not start microphone.");
+        const message = error.name === "NotAllowedError"
+          ? "Microphone permission was denied. Allow microphone access, then try again."
+          : error.name === "NotFoundError"
+            ? "No microphone was found. Connect one, then try again."
+            : error.message || "Could not start microphone.";
+        stopLocalAudio(message);
       }
     });
 

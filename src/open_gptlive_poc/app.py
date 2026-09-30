@@ -7,9 +7,11 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
 from loguru import logger
 
 from .adapters.sqlite_delegations import SQLiteDelegations
@@ -66,6 +68,34 @@ def create_app(
     app.state.sessions = {}
     app.state.delegations = callback_store
 
+    def is_authorized(authorization: str | None) -> bool:
+        from .live.protocol import authenticate
+
+        return not settings.bearer_token or authenticate(authorization, settings.bearer_token)
+
+    async def run_live_session(websocket: WebSocket) -> None:
+        from .live.session import LiveSession
+
+        session = LiveSession(websocket, settings, app.state.ports_factory)
+        app.state.sessions[session.state.session_id] = session
+        logger.info("Live WebSocket accepted", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
+        try:
+            await session.run()
+        except WebSocketDisconnect:
+            await session.close("connection_lost")
+        finally:
+            app.state.sessions.pop(session.state.session_id, None)
+            await asyncio.to_thread(callback_store.unregister_session, session.state.session_id)
+            logger.info("Live WebSocket removed", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
+
+    @app.get("/", include_in_schema=False)
+    def voice_demo() -> FileResponse:
+        return FileResponse(Path(__file__).resolve().parents[2] / "demo" / "index.html")
+
+    @app.get("/status", include_in_schema=False, response_class=HTMLResponse)
+    def demo_status() -> str:
+        return '<p id="configuration">GPT-Live server connected</p>'
+
     @app.get("/health")
     def health() -> dict[str, str]:
         """Return a minimal liveness response."""
@@ -74,9 +104,7 @@ def create_app(
     @app.post("/internal/delegations/{delegation_id}/result")
     async def delegation_result(delegation_id: str, request: Request) -> dict[str, str]:
         """Deliver task callback text to its live session for speech output."""
-        from .live.protocol import authenticate
-
-        if not authenticate(request.headers.get("authorization"), settings.bearer_token or ""):
+        if not is_authorized(request.headers.get("authorization")):
             raise HTTPException(status_code=401, detail="Unauthorized")
         body = bytearray()
         async for chunk in request.stream():
@@ -116,24 +144,34 @@ def create_app(
     @app.websocket("/v1/live/sessions")
     async def live_sessions(websocket: WebSocket) -> None:
         """Authenticate and run one isolated GPT-Live session."""
-        from .live.protocol import authenticate
-        from .live.session import LiveSession
-
-        if not authenticate(websocket.headers.get("authorization"), settings.bearer_token or ""):
+        if not is_authorized(websocket.headers.get("authorization")):
             await websocket.close(code=1008)
             return
         await websocket.accept()
-        session = LiveSession(websocket, settings, app.state.ports_factory)
-        app.state.sessions[session.state.session_id] = session
-        logger.info("Live WebSocket accepted", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
+        await run_live_session(websocket)
+
+    @app.websocket("/ws/live")
+    async def browser_live(websocket: WebSocket) -> None:
+        """Authenticate the browser UI then run the same live session handler."""
+        from .live.protocol import ServerEvent
+
+        await websocket.accept()
         try:
-            await session.run()
-        except WebSocketDisconnect:
-            await session.close("connection_lost")
-        finally:
-            app.state.sessions.pop(session.state.session_id, None)
-            await asyncio.to_thread(callback_store.unregister_session, session.state.session_id)
-            logger.info("Live WebSocket removed", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
+            auth_frame = await websocket.receive_text()
+            if len(auth_frame) > 4096:
+                await websocket.close(code=1008, reason="Invalid authentication frame")
+                return
+            payload = json.loads(auth_frame)
+            token = payload.get("token") if isinstance(payload, dict) and payload.get("type") == "auth" else None
+            authorization = f"Bearer {token}" if isinstance(token, str) and token else None
+            if not is_authorized(authorization):
+                logger.warning("Browser WebSocket authentication rejected")
+                await websocket.close(code=1008, reason="Unauthorized")
+                return
+            await websocket.send_text(ServerEvent("session.authenticated").to_json())
+            await run_live_session(websocket)
+        except (WebSocketDisconnect, json.JSONDecodeError):
+            return
 
     return app
 
