@@ -254,10 +254,12 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         websocket = WaitingWebSocket({"type": "session.start", "model": "gpt-live-1"})
         resource = Resource()
+        shared_speaker = Resource()
+        task_adapter = Resource()
         session = LiveSession(
             websocket,
             replace(self._settings(), max_session_duration_s=0.12),
-            lambda: type("Ports", (), {"vad": resource})(),
+            lambda: type("Ports", (), {"vad": resource, "speaker": shared_speaker, "tasks": task_adapter})(),
         )
 
         with patch("open_gptlive_poc.live.session._USAGE_UPDATE_INTERVAL_SECONDS", 0.025):
@@ -270,6 +272,9 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.sent[-1]["reason"], "expired")
         self.assertGreaterEqual(websocket.sent[-1]["usage"]["seconds"], updates[-1])
         self.assertTrue(resource.closed)
+        self.assertFalse(shared_speaker.closed)
+        self.assertFalse(task_adapter.closed)
+        self.assertIsNone(session.ports)
         self.assertTrue(websocket.closed)
 
     async def test_disconnect_closes_with_connection_lost_reason(self) -> None:

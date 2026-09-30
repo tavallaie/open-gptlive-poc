@@ -426,7 +426,10 @@ class LiveSession:
             await self.websocket.close()
         except Exception:
             pass
-        await self._close_ports()
+        try:
+            await self._close_ports()
+        finally:
+            self.ports = None
 
     def _usage_seconds(self) -> int:
         """Return cumulative wall-clock time since session.start."""

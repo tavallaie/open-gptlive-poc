@@ -51,8 +51,8 @@ sequenceDiagram
     S->>D: enqueue for owning worker
     D-->>S: worker delivery acknowledgement
     S-->>C: callback speech
-C->>S: session.close
-S-->>C: session.closed + usage
+    C->>S: session.close
+    S-->>C: session.closed + usage
 ```
 
 Sessions report cumulative wall-clock time in `session.usage.updated` about
