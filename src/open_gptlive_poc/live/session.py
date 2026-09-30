@@ -126,7 +126,12 @@ class LiveSession:
             if event.type == "session.close":
                 await self.close("close_requested")
                 return
-            await self._handle(event)
+            try:
+                remaining = self.started_at + self.settings.max_session_duration_s - time.monotonic()
+                await asyncio.wait_for(self._handle(event), timeout=max(0.0, remaining))
+            except asyncio.TimeoutError:
+                await self.close("expired")
+                return
 
     async def _start(self, event: ClientEvent) -> None:
         """Create this session's ports and announce the resolved session."""

@@ -277,6 +277,35 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(session.ports)
         self.assertTrue(websocket.closed)
 
+    async def test_expiry_interrupts_in_flight_session_work(self) -> None:
+        operation_started = Event()
+        release_operation = Event()
+
+        class SlowVAD:
+            def append_audio(self, frame: bytes):
+                operation_started.set()
+                release_operation.wait(timeout=1)
+                return []
+
+        websocket = FakeWebSocket(
+            {"type": "session.start", "model": "gpt-live-1"},
+            {"type": "session.input_audio.append", "audio": base64.b64encode(b"\x00\x00" * 768).decode()},
+        )
+        session = LiveSession(
+            websocket,
+            replace(self._settings(), max_session_duration_s=1),
+            lambda: type("Ports", (), {"vad": SlowVAD()})(),
+        )
+
+        try:
+            with patch("open_gptlive_poc.live.session._USAGE_UPDATE_INTERVAL_SECONDS", 60):
+                await session.run()
+            self.assertTrue(operation_started.is_set())
+            self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+            self.assertEqual(websocket.sent[-1]["reason"], "expired")
+        finally:
+            release_operation.set()
+
     async def test_disconnect_closes_with_connection_lost_reason(self) -> None:
         websocket = FakeWebSocket({"type": "session.start", "model": "gpt-live-1"})
         session = LiveSession(websocket, self._settings(), lambda: None)
