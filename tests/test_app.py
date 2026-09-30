@@ -1,21 +1,30 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from open_gptlive_poc.app import create_app
+from open_gptlive_poc.adapters.sqlite_delegations import SQLiteDelegations
 from open_gptlive_poc.config import Settings
 
 
 class AppTests(unittest.TestCase):
-    def test_task_callback_authenticates_and_delivers_content(self) -> None:
-        app = create_app(
-            Settings(
-                bearer_token="secret",
-                silero_model_path="silero",
-                whisper_model_path="whisper",
-                gliner_model_path="gliner",
-            )
+    def setUp(self) -> None:
+        self.temp_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_directory.cleanup)
+
+    def _settings(self) -> Settings:
+        return Settings(
+            bearer_token="secret",
+            silero_model_path="silero",
+            whisper_model_path="whisper",
+            gliner_model_path="gliner",
+            delegation_db_path=str(Path(self.temp_directory.name) / "delegations.sqlite3"),
         )
+
+    def test_task_callback_authenticates_and_delivers_content(self) -> None:
+        app = create_app(self._settings())
         deliveries: list[tuple[str, str]] = []
 
         class Session:
@@ -24,32 +33,31 @@ class AppTests(unittest.TestCase):
                 return delegation_id == "item_1"
 
         app.state.sessions["session_1"] = Session()
-        client = TestClient(app)
-
-        unauthorized = client.post(
-            "/internal/delegations/item_1/result",
-            json={"content": "Done"},
-        )
-        accepted = client.post(
-            "/internal/delegations/item_1/result",
-            headers={"Authorization": "Bearer secret"},
-            json={"content": "Done"},
-        )
+        with TestClient(app) as client:
+            app.state.delegations.register("item_1", "session_1")
+            unauthorized = client.post(
+                "/internal/delegations/item_1/result",
+                json={"content": "Done"},
+            )
+            accepted = client.post(
+                "/internal/delegations/item_1/result",
+                headers={"Authorization": "Bearer secret"},
+                json={"content": "Done"},
+            )
+            duplicate = client.post(
+                "/internal/delegations/item_1/result",
+                headers={"Authorization": "Bearer secret"},
+                json={"content": "Again"},
+            )
 
         self.assertEqual(unauthorized.status_code, 401)
         self.assertEqual(accepted.status_code, 200)
         self.assertEqual(accepted.json(), {"status": "accepted"})
+        self.assertEqual(duplicate.status_code, 404)
         self.assertEqual(deliveries, [("item_1", "Done")])
 
     def test_callback_rejects_malformed_oversized_and_long_content(self) -> None:
-        app = create_app(
-            Settings(
-                bearer_token="secret",
-                silero_model_path="silero",
-                whisper_model_path="whisper",
-                gliner_model_path="gliner",
-            )
-        )
+        app = create_app(self._settings())
         client = TestClient(app)
         headers = {"Authorization": "Bearer secret"}
 
@@ -64,6 +72,32 @@ class AppTests(unittest.TestCase):
         self.assertEqual(malformed.status_code, 400)
         self.assertEqual(oversized.status_code, 413)
         self.assertEqual(too_many_words.status_code, 422)
+
+    def test_callback_is_delivered_to_another_worker_app(self) -> None:
+        settings = self._settings()
+        owner_store = SQLiteDelegations(settings.delegation_db_path)
+        callback_store = SQLiteDelegations(settings.delegation_db_path)
+        owner_app = create_app(settings, delegations=owner_store)
+        callback_app = create_app(settings, delegations=callback_store)
+        deliveries: list[tuple[str, str]] = []
+
+        class Session:
+            def handle_task_result(self, delegation_id: str, content: str) -> bool:
+                deliveries.append((delegation_id, content))
+                return delegation_id == "item_cross_worker"
+
+        with TestClient(owner_app) as owner_client:
+            owner_store.register("item_cross_worker", "session_owner")
+            owner_app.state.sessions["session_owner"] = Session()
+            with TestClient(callback_app) as callback_client:
+                response = callback_client.post(
+                    "/internal/delegations/item_cross_worker/result",
+                    headers={"Authorization": "Bearer secret"},
+                    json={"content": "Completed on the owning worker"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(deliveries, [("item_cross_worker", "Completed on the owning worker")])
 
 
 if __name__ == "__main__":

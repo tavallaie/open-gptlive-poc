@@ -1,10 +1,13 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from open_gptlive_poc.adapters.gliner_router import GLiNERRouter
 from open_gptlive_poc.adapters.http_tasks import HttpTasks
 from open_gptlive_poc.adapters.laya_router import LayaRouter
 from open_gptlive_poc.adapters.lmstudio_talker import LMStudioTalker
+from open_gptlive_poc.adapters.sqlite_delegations import SQLiteDelegations
 from open_gptlive_poc.ports.talker import TalkRequest, TranscriptTurn
 
 
@@ -142,15 +145,38 @@ class TasksTests(unittest.IsolatedAsyncioTestCase):
             captured.update(url=url, body=json.loads(body), headers=headers)
             return b"{}"
 
-        delegation_id = await HttpTasks("http://tasks.local/delegations", transport=transport).create(
-            "sess_1", "Do it", {"kind": "task", "needs_task": 0.9}
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            delegations = SQLiteDelegations(str(Path(directory) / "delegations.sqlite3"))
+            delegations.initialize()
+            delegation_id = "item_test"
+            await HttpTasks(
+                "http://tasks.local/delegations", delegations=delegations, transport=transport
+            ).create(delegation_id, "sess_1", "Do it", {"kind": "task", "needs_task": 0.9})
 
-        self.assertTrue(delegation_id.startswith("item_"))
+        self.assertEqual(delegation_id, "item_test")
         self.assertEqual(captured["url"], "http://tasks.local/delegations")
+        self.assertEqual(captured["body"]["delegation_id"], delegation_id)
         self.assertEqual(captured["body"]["session_id"], "sess_1")
         self.assertEqual(captured["body"]["transcript"], "Do it")
         self.assertEqual(captured["body"]["gliner"]["needs_task"], 0.9)
+
+    async def test_http_failure_unregisters_delegation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            delegations = SQLiteDelegations(str(Path(directory) / "delegations.sqlite3"))
+            delegations.initialize()
+
+            def fail_transport(*_):
+                raise OSError("task service unavailable")
+
+            with self.assertRaisesRegex(OSError, "unavailable"):
+                await HttpTasks(
+                    "http://tasks.local/delegations",
+                    delegations=delegations,
+                    transport=fail_transport,
+                ).create("item_failed", "sess_1", "Do it", {"kind": "task"})
+
+            self.assertIsNone(delegations.enqueue("item_failed", "late callback"))
+            delegations.close_worker()
 
 
 if __name__ == "__main__":

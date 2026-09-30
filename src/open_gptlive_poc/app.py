@@ -1,17 +1,24 @@
 """FastAPI composition root for the GPT-Live server."""
 
+import asyncio
 import json
-from dataclasses import dataclass
+import logging
 from collections.abc import Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from .adapters.sqlite_delegations import SQLiteDelegations
 from .config import Settings
 from .ports import ASR, Router, Speaker, Tasks, Talker, VAD
 
 
 _MAX_CALLBACK_BODY_BYTES = 64 * 1024
 _MAX_CALLBACK_WORDS = 500
+_CALLBACK_WAIT_SECONDS = 5
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,13 +36,31 @@ class Ports:
 def create_app(
     settings: Settings,
     ports_factory: Callable[[], Ports | None] | None = None,
+    delegations: SQLiteDelegations | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with validated settings and injected ports."""
     settings.validate()
-    app = FastAPI(title="GPT-Live server")
+    callback_store = delegations or SQLiteDelegations(
+        settings.delegation_db_path,
+        session_ttl_seconds=settings.max_session_duration_s,
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        callback_store.initialize()
+        worker = asyncio.create_task(_dispatch_callbacks(app, callback_store))
+        try:
+            yield
+        finally:
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+            callback_store.close_worker()
+
+    app = FastAPI(title="GPT-Live server", lifespan=lifespan)
     app.state.settings = settings
     app.state.ports_factory = ports_factory or (lambda: None)
     app.state.sessions = {}
+    app.state.delegations = callback_store
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -63,10 +88,18 @@ def create_app(
             raise HTTPException(status_code=422, detail="content must be a non-empty string")
         if len(content.split()) > _MAX_CALLBACK_WORDS:
             raise HTTPException(status_code=422, detail="content must contain at most 500 words")
-        for session in app.state.sessions.values():
-            if session.handle_task_result(delegation_id, content):
-                return {"status": "accepted"}
-        raise HTTPException(status_code=404, detail="Unknown delegation")
+        callback_id = callback_store.enqueue(delegation_id, content)
+        if callback_id is None:
+            raise HTTPException(status_code=404, detail="Unknown delegation")
+        deadline = monotonic() + _CALLBACK_WAIT_SECONDS
+        while monotonic() < deadline:
+            accepted = callback_store.result(callback_id)
+            if accepted is not None:
+                if accepted:
+                    return {"status": "accepted"}
+                raise HTTPException(status_code=404, detail="Unknown delegation")
+            await asyncio.sleep(0.02)
+        raise HTTPException(status_code=503, detail="Session worker did not acknowledge callback")
 
     @app.websocket("/v1/live/sessions")
     async def live_sessions(websocket: WebSocket) -> None:
@@ -86,5 +119,25 @@ def create_app(
             await session.close("connection_lost")
         finally:
             app.state.sessions.pop(session.state.session_id, None)
+            callback_store.unregister_session(session.state.session_id)
 
     return app
+
+
+async def _dispatch_callbacks(app: FastAPI, callback_store: SQLiteDelegations) -> None:
+    """Poll the local SQLite queue and deliver callbacks to sessions owned here."""
+    last_heartbeat = 0.0
+    while True:
+        try:
+            if monotonic() - last_heartbeat >= 5:
+                callback_store.heartbeat()
+                last_heartbeat = monotonic()
+            for callback_id, delegation_id, content in callback_store.pending():
+                accepted = any(
+                    session.handle_task_result(delegation_id, content)
+                    for session in app.state.sessions.values()
+                )
+                callback_store.complete(callback_id, accepted)
+        except Exception:
+            _logger.exception("Delegation callback polling failed")
+        await asyncio.sleep(0.05)

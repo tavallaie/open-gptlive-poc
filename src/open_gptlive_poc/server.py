@@ -5,6 +5,7 @@ from .adapters.gliner_router import GLiNERRouter
 from .adapters.http_tasks import HttpTasks
 from .adapters.laya_router import LayaRouter
 from .adapters.lmstudio_talker import LMStudioTalker
+from .adapters.sqlite_delegations import SQLiteDelegations
 from .adapters.silero_vad import SileroVAD
 from .adapters.supertonic_speaker import SupertonicSpeaker
 from .app import Ports, create_app
@@ -31,6 +32,10 @@ talker = LMStudioTalker(
     reasoning_effort=settings.lm_studio_reasoning_effort,
 )
 speaker = SupertonicSpeaker(settings.supertonic_voice_map)
+delegations = SQLiteDelegations(
+    settings.delegation_db_path,
+    session_ttl_seconds=settings.max_session_duration_s,
+)
 
 
 def ports_factory() -> Ports:
@@ -41,8 +46,8 @@ def ports_factory() -> Ports:
         router=router,
         talker=talker,
         speaker=speaker,
-        tasks=HttpTasks(settings.tasks_url),
+        tasks=HttpTasks(settings.tasks_url, delegations=delegations),
     )
 
 
-app = create_app(settings, ports_factory)
+app = create_app(settings, ports_factory, delegations=delegations)

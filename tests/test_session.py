@@ -153,9 +153,8 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
                 return "Sure."
 
         class Tasks:
-            async def create(self, session_id, transcript, labels):
-                self.request = (session_id, transcript, labels)
-                return "item_task"
+            async def create(self, delegation_id, session_id, transcript, labels):
+                self.request = (delegation_id, session_id, transcript, labels)
 
         talker = Talker()
         tasks = Tasks()
@@ -167,8 +166,9 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(websocket.sent[0]["type"], "session.output_transcript.delta")
         self.assertEqual(websocket.sent[1]["type"], "session.delegation.created")
-        self.assertEqual(tasks.request[1:], ("Do it", {"kind": "task"}))
+        self.assertEqual(tasks.request[2:], ("Do it", {"kind": "task"}))
         self.assertEqual(talker.request.transcript, "Do it")
+        self.assertEqual(websocket.sent[1]["delegation_id"], tasks.request[0])
 
     async def test_transcript_adapter_failure_is_recoverable(self) -> None:
         class Router:
@@ -183,6 +183,29 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(websocket.sent[0]["type"], "error")
         self.assertEqual(websocket.sent[0]["error"]["code"], "internal_error")
+
+    async def test_task_http_failure_is_session_scoped(self) -> None:
+        class Router:
+            def classify(self, transcript):
+                return RouteDecision(transcript, 0.9, "task", False, {"kind": "task"})
+
+        class Tasks:
+            async def create(self, delegation_id, session_id, transcript, labels):
+                raise OSError("task service unavailable")
+
+        websocket = FakeWebSocket()
+        session = LiveSession(websocket, self._settings(), lambda: None)
+        session.ports = type(
+            "Ports",
+            (),
+            {"router": Router(), "tasks": Tasks(), "talker": object(), "speaker": object(), "vad": object()},
+        )()
+
+        await session.handle_transcript("Do it")
+
+        self.assertEqual(websocket.sent[-1]["error"]["code"], "internal_error")
+        self.assertFalse(session.state.delegation_ids)
+        self.assertFalse(any(event["type"] == "session.delegation.created" for event in websocket.sent))
 
     async def test_start_commands_and_close(self) -> None:
         websocket = FakeWebSocket(
