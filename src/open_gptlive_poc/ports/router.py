@@ -17,11 +17,13 @@ class RouteDecision:
     talk: bool
     labels: Mapping[str, object]
     task_threshold: float = 0.5
+    interrupt_current: bool = False
+    wait_for_user: bool = False
 
     @property
     def task(self) -> bool:
         """Whether the task system should receive this turn."""
-        return self.needs_task >= self.task_threshold
+        return self.needs_task >= self.task_threshold and self.kind != "function_call" and not self.wait_for_user
 
 
 class Router(Protocol):

@@ -21,7 +21,7 @@ class FasterWhisperASR:
         *,
         device: str = "auto",
         compute_type: str = "auto",
-        language: str | None = None,
+        language: str = "en",
         model: Any | None = None,
     ) -> None:
         checkpoint = Path(model_path)

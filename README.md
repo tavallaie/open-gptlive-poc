@@ -72,6 +72,22 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 Configuration is loaded from `GPTLIVE_*` environment variables. Required
 credentials and local model paths must remain outside the repository.
 
+The server writes structured JSON logs to stderr through Loguru. Each live
+turn is correlated with `session_id` and `turn_id`; logs include VAD, ASR,
+GLiNER routing labels/decisions, LM Studio timing/cancellation, TTS, and tool
+lifecycle events without recording audio, credentials, or transcript contents.
+Set `GPTLIVE_LOG_LEVEL=DEBUG` for audio-queue diagnostics; the default is
+`INFO`. To also persist logs, set `GPTLIVE_LOG_FILE=.gptlive-logs/server.jsonl`;
+the file sink rotates at 10 MB and keeps seven days of logs.
+To see why a turn did not reach the model, inspect `Router decision` first:
+its `talk`, `task`, `wait_for_user`, and `interrupt_current` fields explain the
+branch. A model call should then produce `Starting LM Studio reply`, followed
+by `LLM first token received` and TTS lifecycle records. For example:
+
+```bash
+jq -c 'select(.record.message == "Router decision" or .record.message == "Starting LM Studio reply" or .record.message == "TTS synthesis started")' .gptlive-logs/server.jsonl
+```
+
 Set the required model paths in an untracked local `.env` file or in the
 deployment environment. Do not add machine-specific paths to the repository.
 
@@ -103,7 +119,11 @@ and [multilingual ONNX export](https://huggingface.co/yehor-oleksiuk/laya-multil
 
 LM Studio uses the OpenAI-compatible `/v1/chat/completions` endpoint by
 default. Set `GPTLIVE_LM_STUDIO_BASE_URL` to `/api/v1` only when using the
-native LM Studio API.
+native LM Studio API. Session replies advertise two real function tools to
+models that support OpenAI-compatible tool calls: `get_current_time` returns
+the server's local time with timezone, and `start_timer` schedules a
+session-scoped reminder that is spoken when it completes. These tools require
+the `/v1` API; timers are canceled when the live session closes.
 
 Supertonic supplies speech output. Its Python package downloads model files to
 the Hugging Face cache on first use. The Live voice `marin` maps to Supertonic

@@ -16,6 +16,8 @@ _QUESTION = {
     "needs_task": ["task", "no_task"],
     "kind": ["chat", "task", "function_call"],
     "response": ["talk", "task", "both"],
+    "interrupt": ["interrupt_current_response", "continue_current_response"],
+    "turn_state": ["wait_for_user", "ready_to_process"],
 }
 
 
@@ -46,8 +48,18 @@ class GLiNERRouter(Router):
         needs_task = _score(_label_confidence(result.get("needs_task")), positive=("task", "yes", "true"))
         kind = _choice(_label_confidence(result.get("kind")), ("chat", "task", "function_call"), "chat")
         response = _choice(_label_confidence(result.get("response")), ("talk", "task", "both"), "talk" if kind == "chat" else "task")
+        interrupt_result = result.get("interrupt")
+        interrupt = interrupt_result is not None and _score(
+            _label_confidence(interrupt_result),
+            positive=("interrupt_current_response", "interrupt", "stop", "cancel", "yes", "true"),
+        ) >= self.task_threshold
+        turn_state = _choice(
+            _label_confidence(result.get("turn_state")),
+            ("wait_for_user", "ready_to_process"),
+            "ready_to_process",
+        )
         task = needs_task >= self.task_threshold
-        talk = not task or kind == "chat" or response in {"talk", "both"}
+        talk = not task or kind in {"chat", "function_call"} or response in {"talk", "both"}
         return RouteDecision(
             transcript=transcript,
             needs_task=needs_task,
@@ -55,6 +67,8 @@ class GLiNERRouter(Router):
             talk=talk,
             labels=dict(result),
             task_threshold=self.task_threshold,
+            interrupt_current=interrupt,
+            wait_for_user=turn_state == "wait_for_user",
         )
 
     @staticmethod

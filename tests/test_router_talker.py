@@ -1,4 +1,5 @@
 import json
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,8 @@ class RouterTests(unittest.TestCase):
                 "needs_task": {"task": 0.8, "no_task": 0.2},
                 "kind": {"task": 0.9, "chat": 0.1},
                 "response": {"both": 0.9, "talk": 0.1},
+                "interrupt": {"interrupt_current_response": 0.9, "continue_current_response": 0.1},
+                "turn_state": {"ready_to_process": 0.95, "wait_for_user": 0.05},
             }
         )
         router = GLiNERRouter("unused", model=model, task_threshold=0.75)
@@ -38,6 +41,8 @@ class RouterTests(unittest.TestCase):
         self.assertTrue(decision.talk)
         self.assertEqual(decision.kind, "task")
         self.assertEqual(decision.labels["needs_task"], {"task": 0.8, "no_task": 0.2})
+        self.assertTrue(decision.interrupt_current)
+        self.assertFalse(decision.wait_for_user)
         self.assertEqual(model.calls[0][0], "Where is my order?")
 
     def test_chat_decision_does_not_schedule_task(self):
@@ -50,6 +55,20 @@ class RouterTests(unittest.TestCase):
         self.assertFalse(decision.task)
         self.assertTrue(decision.talk)
         self.assertEqual(decision.kind, "chat")
+
+    def test_wait_label_defers_task_and_response(self):
+        model = FakeGLiNER({
+            "needs_task": {"task": 0.0, "no_task": 1.0},
+            "kind": {"chat": 1.0},
+            "response": {"talk": 1.0},
+            "turn_state": {"wait_for_user": 0.9, "ready_to_process": 0.1},
+        })
+
+        decision = GLiNERRouter("unused", model=model).classify("Hmm, I think we should…")
+
+        self.assertTrue(decision.wait_for_user)
+        self.assertFalse(decision.task)
+        self.assertTrue(decision.talk)
 
     def test_laya_decision_uses_typed_answers(self):
         class FakeLaya:
@@ -74,6 +93,32 @@ class RouterTests(unittest.TestCase):
 
 
 class TalkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_openai_stream_executes_tool_and_continues_reply(self):
+        from open_gptlive_poc.live.session_tools import SessionTools
+
+        calls = []
+
+        async def stream_transport(url, payload):
+            calls.append(payload.copy())
+            if len(calls) == 1:
+                yield "", {"choices": [{"delta": {"tool_calls": [{
+                    "index": 0, "id": "call-time", "type": "function",
+                    "function": {"name": "get_current_time", "arguments": "{}"},
+                }]}}]}
+            else:
+                self.assertEqual(payload["messages"][-1]["role"], "tool")
+                self.assertRegex(payload["messages"][-1]["content"], r"^\d{4}-\d\d-\d\dT.*[+-]\d\d:\d\d$")
+                yield "", {"choices": [{"delta": {"content": "It is now 10:30."}}]}
+
+        talker = LMStudioTalker("http://localhost:1234/v1", "local-model", stream_transport=stream_transport)
+        tools = SessionTools(lambda _: True)
+        result = [part async for part in talker.stream_reply(TalkRequest("What time is it?", tools=tools))]
+
+        self.assertEqual(result, ["It is now 10:30."])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["tools"][0]["function"]["name"], "get_current_time")
+        await tools.close()
+
     async def test_native_stream_yields_message_deltas(self):
         async def stream_transport(url, payload):
             self.assertEqual(url, "http://localhost:1234/api/v1/chat")
@@ -135,6 +180,34 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "invalid chat response"):
             await talker.reply(TalkRequest("Hello"))
+
+
+class SessionToolsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_current_time_returns_local_iso_timestamp(self):
+        from open_gptlive_poc.live.session_tools import SessionTools
+
+        tools = SessionTools(lambda _: True)
+        result = await tools.execute("get_current_time", {})
+        self.assertRegex(result, r"^\d{4}-\d\d-\d\dT.*[+-]\d\d:\d\d$")
+        await tools.close()
+
+    async def test_timer_notifies_when_background_delay_finishes(self):
+        from open_gptlive_poc.live.session_tools import SessionTools
+
+        notified = asyncio.Event()
+        messages = []
+
+        def notify(message):
+            messages.append(message)
+            notified.set()
+            return True
+
+        tools = SessionTools(notify)
+        result = await tools.execute("start_timer", {"seconds": 1, "message": "stretch"})
+        self.assertIn("Timer started for 1 seconds", result)
+        await asyncio.wait_for(notified.wait(), timeout=2)
+        self.assertEqual(messages, ["Timer finished: stretch"])
+        await tools.close()
 
 
 class TasksTests(unittest.IsolatedAsyncioTestCase):

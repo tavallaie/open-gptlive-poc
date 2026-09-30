@@ -19,9 +19,11 @@ class FakeSegment:
 
 class FakeModel:
     last_sample_count = 0
+    language = None
 
     def transcribe(self, samples, language, vad_filter):
         self.last_sample_count = len(samples)
+        self.language = language
         return iter([FakeSegment()]), object()
 
 
@@ -110,11 +112,13 @@ class AdapterTests(unittest.TestCase):
 
     def test_faster_whisper_returns_text_and_session_timestamps(self) -> None:
         with tempfile.NamedTemporaryFile() as model_file:
-            asr = FasterWhisperASR(model_file.name, model=FakeModel())
+            model = FakeModel()
+            asr = FasterWhisperASR(model_file.name, model=model)
             result = asr.transcribe(b"\x00\x00" * 24_000, start_ms=250)
 
         self.assertEqual(result.text, "hello local model")
         self.assertEqual((result.start_ms, result.end_ms), (250, 1250))
+        self.assertEqual(model.language, "en")
 
     def test_faster_whisper_receives_16khz_samples(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

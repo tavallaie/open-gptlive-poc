@@ -12,11 +12,16 @@ dependencies = [
     "faster-whisper>=1.1,<2",
     "gliner2>=2,<3",
     "httpx>=0.28,<1",
-    "laya[onnx]>=0.3.20,<1",
+    "loguru>=0.7,<1",
     "numpy>=2,<3",
     "onnxruntime>=1.20,<2",
     "supertonic>=1.3,<2",
+    "uvicorn[standard]>=0.54.0",
+    "websockets>=14,<16",
 ]
+
+[project.optional-dependencies]
+laya = ["laya[onnx]>=0.3.20,<1"]
 
 [project.scripts]
 open-gptlive-poc = "open_gptlive_poc:main"

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from collections.abc import AsyncIterator
 from typing import Literal, Protocol, Sequence
 
+from .tools import ToolExecutor
+
 
 @dataclass(frozen=True, slots=True)
 class TranscriptTurn:
@@ -21,6 +23,7 @@ class TalkRequest:
     instructions: Sequence[str] = field(default_factory=tuple)
     thinking: Sequence[str] = field(default_factory=tuple)
     history: Sequence[TranscriptTurn] = field(default_factory=tuple)
+    tools: ToolExecutor | None = None
 
 
 class Talker(Protocol):

@@ -1,27 +1,40 @@
+import os
 import unittest
+from unittest.mock import patch
 
-import numpy as np
-
-from demo.client import convert_to_pcm16le, endpoint_url
+from demo.client import endpoint_url, upstream_settings
 
 
-class DemoClientTests(unittest.TestCase):
-    def test_audio_is_mono_24khz_pcm16le(self) -> None:
-        samples = np.array([[0.0, 1.0], [0.5, 0.5]], dtype=np.float32)
+class EndpointSettingsTests(unittest.TestCase):
+    def test_endpoint_url_adds_live_route_and_converts_scheme(self) -> None:
+        self.assertEqual(endpoint_url("http://localhost:8000"), "ws://localhost:8000/v1/live/sessions")
+        self.assertEqual(endpoint_url("https://example.test/v1/live/sessions/"), "wss://example.test/v1/live/sessions")
 
-        result = convert_to_pcm16le((48_000, samples))
+    def test_bridge_uses_demo_credentials_without_leaking_them_to_ui(self) -> None:
+        env = {
+            "GPTLIVE_DEMO_WS_URL": "ws://localhost:8000",
+            "GPTLIVE_ENDPOINT_URL": "",
+            "GPTLIVE_DEMO_TOKEN": "demo-secret",
+            "GPTLIVE_BEARER_TOKEN": "",
+        }
+        with patch.dict(os.environ, env):
+            endpoint, token = upstream_settings()
 
-        self.assertEqual(len(result) % 2, 0)
-        self.assertGreater(len(result), 0)
+        self.assertEqual(endpoint, "ws://localhost:8000/v1/live/sessions")
+        self.assertEqual(token, "demo-secret")
 
-    def test_integer_audio_is_scaled_from_pcm_range(self) -> None:
-        result = convert_to_pcm16le((24_000, np.array([[0, 32767], [0, 32767]], dtype=np.int16)))
+    def test_server_environment_names_are_supported(self) -> None:
+        env = {
+            "GPTLIVE_DEMO_WS_URL": "",
+            "GPTLIVE_ENDPOINT_URL": "http://localhost:8000",
+            "GPTLIVE_DEMO_TOKEN": "",
+            "GPTLIVE_BEARER_TOKEN": "server-secret",
+        }
+        with patch.dict(os.environ, env):
+            endpoint, token = upstream_settings()
 
-        self.assertEqual(np.frombuffer(result, dtype="<i2").tolist(), [16383, 16383])
-
-    def test_endpoint_url_is_normalized(self) -> None:
-        self.assertEqual(endpoint_url("https://example.com"), "wss://example.com/v1/live/sessions")
-        self.assertEqual(endpoint_url("ws://example.com/v1/live/sessions"), "ws://example.com/v1/live/sessions")
+        self.assertEqual(endpoint, "ws://localhost:8000/v1/live/sessions")
+        self.assertEqual(token, "server-secret")
 
 
 if __name__ == "__main__":

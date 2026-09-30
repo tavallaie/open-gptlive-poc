@@ -12,3 +12,4 @@ wheels/
 # Local configuration and secrets
 .env
 .gptlive-delegations.sqlite3*
+.gptlive-logs/

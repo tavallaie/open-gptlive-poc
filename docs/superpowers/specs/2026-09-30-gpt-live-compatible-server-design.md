@@ -100,7 +100,11 @@ client                    this process                 LM Studio / GLiNER / othe
   |<----------------------------|
 ```
 
-Input audio and TTS run together. Silero keeps watching during playback. A new `speech_started` cancels current TTS (barge-in).
+Input audio and TTS run together. Silero keeps watching during playback. A new
+`speech_started` immediately cancels browser playback and pauses queued speech.
+After ASR, GLiNER can cancel the active model response for an interruption, or
+return `wait_for_user` so fillers/incomplete phrases are combined with the next
+transcript before routing. Turn processing runs outside the WebSocket receive loop.
 
 ## Event map (slice 1)
 
@@ -126,6 +130,7 @@ Each append is a plain string, max 500 tokens, with `delegation_id` (`null` mean
 | `session.started` | After start |
 | `session.input_transcript.delta` | Whisper fragment with `start_ms` / `end_ms` |
 | `session.output_transcript.delta` | Text about to be spoken |
+| `session.output_audio.started` | Speaker synthesis started for the next text chunk |
 | `session.output_audio.delta` | Base64 24 kHz PCM16LE plus timing |
 | `session.delegation.created` | Task POST fired (`target: "client"`) |
 | `session.instructions.appended` | Instructions append accepted |
@@ -172,7 +177,14 @@ A turn starts on `speech_stopped` after a long pause. Default pause is 700 ms of
 
 Mute means VAD consumes no frames. The session stays up.
 
-Barge-in: `speech_started` while Speaker is playing cancels the current utterance.
+Barge-in: `speech_started` stops browser playback and cancels the current
+speaker utterance. GLiNER's `interrupt_current_response` label then cancels the
+active LLM stream and drops queued speech when the transcript corrects or
+redirects the response. The receive loop stays active throughout generation.
+
+Incomplete turns: GLiNER's `wait_for_user` label retains the current transcript
+without invoking the Talker or Tasks. The next ASR transcript is joined to it
+and classified again, up to the normal transcript size limit.
 
 ### ASR (Faster-Whisper)
 
@@ -392,9 +404,10 @@ Use fake ports in unit tests. Do not require GPU or LM Studio for CI.
 1. `session.start` → `session.started` with resolved config.
 2. Pause → fake ASR text → GLiNER talk → output transcript and audio on the socket.
 3. GLiNER task → outbound POST fired, `delegation.created` emitted, callback → more audio.
-4. Barge-in: `speech_started` during TTS stops further `output_audio.delta`.
-5. Bad JSON and immutable update emit `error` and leave the session up.
-6. `session.close` → `session.closed` with `reason: close_requested` and `usage.seconds`.
+4. Barge-in: `speech_started` stops client playback; GLiNER interruption cancels the active reply stream.
+5. GLiNER `wait_for_user` combines a filler/incomplete transcript with the next turn without invoking the Talker.
+6. Bad JSON and immutable update emit `error` and leave the session up.
+7. `session.close` → `session.closed` with `reason: close_requested` and `usage.seconds`.
 
 ## Out of slice 1
 

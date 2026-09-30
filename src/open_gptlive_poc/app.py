@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from loguru import logger
 
 from .adapters.sqlite_delegations import SQLiteDelegations
 from .config import Settings
@@ -48,6 +49,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        logger.info("Initializing delegation store", database_path=settings.delegation_db_path)
         await asyncio.to_thread(callback_store.initialize)
         worker = asyncio.create_task(_dispatch_callbacks(app, callback_store))
         try:
@@ -56,6 +58,7 @@ def create_app(
             worker.cancel()
             await asyncio.gather(worker, return_exceptions=True)
             await asyncio.to_thread(callback_store.close_worker)
+            logger.info("Delegation callback worker stopped")
 
     app = FastAPI(title="GPT-Live server", lifespan=lifespan)
     app.state.settings = settings
@@ -94,6 +97,7 @@ def create_app(
         except sqlite3.Error as exc:
             raise HTTPException(status_code=503, detail="Callback store unavailable") from exc
         if callback_id is None:
+            logger.warning("Callback rejected for unknown delegation", delegation_id=delegation_id)
             raise HTTPException(status_code=404, detail="Unknown delegation")
         deadline = monotonic() + _CALLBACK_WAIT_SECONDS
         while monotonic() < deadline:
@@ -103,6 +107,7 @@ def create_app(
                 raise HTTPException(status_code=503, detail="Callback store unavailable") from exc
             if accepted is not None:
                 if accepted:
+                    logger.info("Delegation callback accepted", delegation_id=delegation_id)
                     return {"status": "accepted"}
                 raise HTTPException(status_code=404, detail="Unknown delegation")
             await asyncio.sleep(0.05)
@@ -120,6 +125,7 @@ def create_app(
         await websocket.accept()
         session = LiveSession(websocket, settings, app.state.ports_factory)
         app.state.sessions[session.state.session_id] = session
+        logger.info("Live WebSocket accepted", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
         try:
             await session.run()
         except WebSocketDisconnect:
@@ -127,6 +133,7 @@ def create_app(
         finally:
             app.state.sessions.pop(session.state.session_id, None)
             await asyncio.to_thread(callback_store.unregister_session, session.state.session_id)
+            logger.info("Live WebSocket removed", session_id=session.state.session_id, active_sessions=len(app.state.sessions))
 
     return app
 
