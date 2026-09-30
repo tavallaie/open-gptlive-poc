@@ -86,6 +86,31 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(sum(event["type"] == "session.output_audio.delta" for event in websocket.sent), 1)
 
+    async def test_cancelled_utterance_does_not_clear_next_cancellation_event(self) -> None:
+        started = Event()
+        release = Event()
+
+        class Speaker:
+            def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:
+                started.set()
+                release.wait(timeout=2)
+                return b"\x00\x00" * 2_400
+
+        session = LiveSession(FakeWebSocket(), self._settings(), lambda: None)
+        session.ports = type("Ports", (), {"speaker": Speaker()})()
+        session._queue_speech("First")
+        old_utterance = session._utterance_task
+        await asyncio.to_thread(started.wait, 1)
+
+        session._cancel_speech()
+        next_cancellation = Event()
+        session._synthesis_cancel = next_cancellation
+        release.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await old_utterance
+
+        self.assertIs(session._synthesis_cancel, next_cancellation)
+
     async def test_task_result_content_is_queued_for_speech(self) -> None:
         class Speaker:
             def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:

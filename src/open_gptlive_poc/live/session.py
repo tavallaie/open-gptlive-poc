@@ -335,7 +335,8 @@ class LiveSession:
             except Exception:
                 await self._send_error("internal_error", "Speaker adapter failed")
             finally:
-                self._synthesis_cancel = None
+                if self._synthesis_cancel is cancellation:
+                    self._synthesis_cancel = None
                 self._speech_queue.task_done()
 
     async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
