@@ -1,6 +1,11 @@
 import struct
 import tempfile
+import threading
 import unittest
+
+import numpy as np
+
+from open_gptlive_poc.adapters.supertonic_speaker import SupertonicSpeaker, _resample_pcm16le
 from pathlib import Path
 
 from open_gptlive_poc.adapters.silero_vad import SileroVAD, resample_pcm16le
@@ -20,7 +25,68 @@ class FakeModel:
         return iter([FakeSegment()]), object()
 
 
+class FakeSupertonic:
+    def __init__(self) -> None:
+        self.voice_name = None
+
+    def get_voice_style(self, voice_name: str):
+        self.voice_name = voice_name
+        return voice_name
+
+    def synthesize(
+        self,
+        text: str,
+        *,
+        voice_style: str,
+        lang: str,
+        max_chunk_length: int,
+        silence_duration: float,
+    ):
+        self.arguments = (text, voice_style, lang)
+        return np.ones((1, 441), dtype=np.float32) * 0.5, np.array([0.01])
+
+
 class AdapterTests(unittest.TestCase):
+    def test_supertonic_maps_marin_and_resamples_to_pcm16le(self) -> None:
+        model = FakeSupertonic()
+        speaker = SupertonicSpeaker({"marin": "F1"}, tts=model)
+
+        result = speaker.synthesize("Hello", "marin")
+
+        self.assertEqual(model.voice_name, "F1")
+        self.assertEqual(model.arguments, ("Hello", "F1", "na"))
+        self.assertEqual(len(result), 240 * 2)
+        self.assertAlmostEqual(struct.unpack_from("<h", result)[0], 16384, delta=2)
+
+    def test_resampler_attenuates_frequencies_above_24khz_nyquist(self) -> None:
+        time = np.arange(44_100) / 44_100
+        waveform = 0.5 * np.sin(2 * np.pi * 15_000 * time)
+
+        pcm = _resample_pcm16le(waveform)
+        samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32)
+
+        self.assertEqual(samples.size, 24_000)
+        self.assertLess(np.sqrt(np.mean(samples**2)), 200)
+
+    def test_supertonic_stops_between_synthesis_chunks_when_cancelled(self) -> None:
+        cancelled = threading.Event()
+
+        class CancellingSupertonic(FakeSupertonic):
+            calls = 0
+
+            def synthesize(self, *args, **kwargs):
+                self.calls += 1
+                cancelled.set()
+                return super().synthesize(*args, **kwargs)
+
+        model = CancellingSupertonic()
+        speaker = SupertonicSpeaker(tts=model)
+
+        result = speaker.synthesize("First sentence. " + "next " * 80, "marin", cancelled)
+
+        self.assertTrue(result)
+        self.assertEqual(model.calls, 1)
+
     def test_resampler_changes_24khz_to_16khz(self) -> None:
         source = struct.pack("<3h", 0, 1000, 2000)
 

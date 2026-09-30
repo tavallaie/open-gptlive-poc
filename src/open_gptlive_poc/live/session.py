@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from binascii import Error as Base64Error
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import Event as ThreadEvent
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
@@ -35,6 +36,7 @@ PortFactory = Callable[[], Any]
 _VAD_FRAME_BYTES = 768 * 2
 _MAX_SPEECH_AUDIO_BYTES = 60 * 24_000 * 2
 _MAX_HISTORY_TURNS = 20
+_OUTPUT_AUDIO_CHUNK_BYTES = 4_800
 
 
 @dataclass(slots=True)
@@ -53,6 +55,7 @@ class SessionState:
     speech_audio: bytearray = field(default_factory=bytearray)
     speech_start_ms: int | None = None
     vad_pending_audio: bytearray = field(default_factory=bytearray)
+    voice: str = "marin"
     delegation_ids: set[str] = field(default_factory=set)
 
 
@@ -66,6 +69,9 @@ class LiveSession:
         self.state = SessionState()
         self.ports: Ports | None = None
         self.started_at = time.monotonic()
+        self._speech_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+        self._utterance_task: asyncio.Task[None] | None = None
+        self._synthesis_cancel: ThreadEvent | None = None
 
     async def run(self) -> None:
         """Read, validate, route, and acknowledge events until disconnect."""
@@ -104,6 +110,10 @@ class LiveSession:
         except Exception:
             await self._send_error("internal_error", "Unable to initialize session adapters")
 
+        voice = event.data.get("voice")
+        if isinstance(voice, str) and voice:
+            self.state.voice = voice
+
         self.state.started = True
         data = {
             "session": {
@@ -126,6 +136,7 @@ class LiveSession:
                 return
             if event.type == "session.input_audio.mute":
                 self.state.muted = True
+                self._cancel_speech()
                 self.state.vad_pending_audio.clear()
                 self.state.speech_audio.clear()
                 self.state.speech_start_ms = None
@@ -145,6 +156,8 @@ class LiveSession:
                     "session.commentary.append": self.state.commentary,
                 }[event.type]
                 collection.append(text)
+                if event.type == "session.commentary.append":
+                    self._queue_speech(text)
                 await self._ack(
                     {
                         "session.instructions.append": "session.instructions.appended",
@@ -176,6 +189,7 @@ class LiveSession:
             for event in events:
                 if event.type == "speech_started":
                     self.state.speech_start_ms = event.offset_ms
+                    self._cancel_speech()
                 elif event.type == "speech_stopped":
                     stopped_at = event.offset_ms
             if self.state.speech_start_ms is not None:
@@ -226,6 +240,7 @@ class LiveSession:
                     history=tuple(self.state.history),
                 )
                 reply = await self._reply(request)
+                self._queue_speech(reply, transcript_sent=True)
                 self.state.history.extend((TranscriptTurn("user", transcript), TranscriptTurn("assistant", reply)))
                 del self.state.history[:-_MAX_HISTORY_TURNS]
                 self.state.transcripts.extend((transcript, reply))
@@ -257,6 +272,72 @@ class LiveSession:
             fragments.append(fragment)
             await self._send(ServerEvent("session.output_transcript.delta", {"text": fragment}))
         return "".join(fragments)
+
+    def handle_task_result(self, delegation_id: str, content: str) -> bool:
+        """Queue speech for a callback belonging to this session."""
+        if self.state.closing or delegation_id not in self.state.delegation_ids or not content.strip():
+            return False
+        if not self._queue_speech(content):
+            return False
+        self.state.delegation_ids.remove(delegation_id)
+        self.state.commentary.append(content)
+        return True
+
+    def _queue_speech(self, text: str, *, transcript_sent: bool = False) -> bool:
+        """Queue one utterance; the worker synthesizes and sends it serially."""
+        speaker = getattr(self.ports, "speaker", None) if self.ports is not None else None
+        if not text.strip() or not callable(getattr(speaker, "synthesize", None)):
+            return False
+        self._speech_queue.put_nowait((text, transcript_sent))
+        if self._utterance_task is None or self._utterance_task.done():
+            self._utterance_task = asyncio.create_task(self._drain_speech_queue())
+        return True
+
+    def _cancel_speech(self) -> None:
+        """Cancel playback and discard queued utterances on barge-in."""
+        if self._synthesis_cancel is not None:
+            self._synthesis_cancel.set()
+        if self._utterance_task is not None and not self._utterance_task.done():
+            self._utterance_task.cancel()
+        self._utterance_task = None
+        while not self._speech_queue.empty():
+            try:
+                self._speech_queue.get_nowait()
+                self._speech_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+    async def _drain_speech_queue(self) -> None:
+        """Synthesize queued text and emit timed 24 kHz PCM chunks."""
+        while not self._speech_queue.empty():
+            text, transcript_sent = await self._speech_queue.get()
+            try:
+                if not transcript_sent:
+                    await self._send(ServerEvent("session.output_transcript.delta", {"text": text}))
+                cancellation = ThreadEvent()
+                self._synthesis_cancel = cancellation
+                audio = await asyncio.to_thread(
+                    self.ports.speaker.synthesize, text, self.state.voice, cancellation
+                )
+                for offset in range(0, len(audio), _OUTPUT_AUDIO_CHUNK_BYTES):
+                    chunk = audio[offset : offset + _OUTPUT_AUDIO_CHUNK_BYTES]
+                    start_ms = offset // 48
+                    await self._send(
+                        ServerEvent(
+                            "session.output_audio.delta",
+                            {
+                                "delta": b64encode(chunk).decode("ascii"),
+                                "start_ms": start_ms,
+                                "end_ms": start_ms + len(chunk) // 48,
+                            },
+                        )
+                    )
+            except Exception:
+                await self._send_error("internal_error", "Speaker adapter failed")
+            finally:
+                if self._synthesis_cancel is cancellation:
+                    self._synthesis_cancel = None
+                self._speech_queue.task_done()
 
     async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
         """Create one outbound task while preserving the router labels."""
@@ -299,6 +380,7 @@ class LiveSession:
         if self.state.closing:
             return
         self.state.closing = True
+        self._cancel_speech()
         try:
             await self._send(
                 ServerEvent(

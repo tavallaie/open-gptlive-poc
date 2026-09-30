@@ -230,9 +230,12 @@ Output is PCM chunks at 24 kHz 16-bit mono for `session.output_audio.delta`.
 
 Emit `session.output_transcript.delta` before the matching audio.
 
-One utterance at a time per session. Barge-in drops the rest of the current utterance.
-
-Supertonic native rate is 44.1 kHz. The adapter resamples.
+Supertonic synthesizes at 44.1 kHz; the adapter resamples to 24 kHz PCM16LE.
+Audio is sent in 100 ms deltas with utterance-relative `start_ms` and `end_ms`.
+Commentary and task callback text share the per-session speech queue. Barge-in
+drops queued speech and prevents remaining chunks of the active utterance from
+being emitted. Synthesis checks cancellation between short text chunks; an ONNX
+call already in progress completes before cancellation takes effect.
 
 ### Tasks (async HTTP)
 
@@ -257,6 +260,7 @@ Inbound callback:
 
 ```http
 POST /internal/delegations/{delegation_id}/result
+Authorization: Bearer {GPTLIVE_BEARER_TOKEN}
 Content-Type: application/json
 
 {
@@ -265,7 +269,10 @@ Content-Type: application/json
 }
 ```
 
-Unknown or closed `delegation_id` returns HTTP 404. Valid `content` is commentary: run Speaker, keep the session.
+Unknown, repeated, or closed `delegation_id` returns HTTP 404. Invalid JSON
+returns HTTP 400; callback bodies are limited to 64 KiB and content to 500
+words. Valid `content` is commentary: consume the delegation, run Speaker,
+keep the session.
 
 Polling is out of slice 1. Callback only.
 
