@@ -140,9 +140,11 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
 class TasksTests(unittest.IsolatedAsyncioTestCase):
     async def test_posts_transcript_and_labels(self):
         captured = {}
+        fast_callback = {}
 
         def transport(url, body, headers):
             captured.update(url=url, body=json.loads(body), headers=headers)
+            fast_callback["id"] = delegations.enqueue("item_test", "Fast result")
             return b"{}"
 
         with tempfile.TemporaryDirectory() as directory:
@@ -156,6 +158,7 @@ class TasksTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(delegation_id, "item_test")
         self.assertEqual(captured["url"], "http://tasks.local/delegations")
         self.assertEqual(captured["body"]["delegation_id"], delegation_id)
+        self.assertIsNotNone(fast_callback["id"])
         self.assertEqual(captured["body"]["session_id"], "sess_1")
         self.assertEqual(captured["body"]["transcript"], "Do it")
         self.assertEqual(captured["body"]["gliner"]["needs_task"], 0.9)

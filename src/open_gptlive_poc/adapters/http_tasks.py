@@ -31,7 +31,6 @@ class HttpTasks:
         self, delegation_id: str, session_id: str, transcript: str, labels: dict[str, object]
     ) -> None:
         """Register, then POST a delegation without waiting for task completion."""
-        self.delegations.register(delegation_id, session_id)
         payload = {
             "session_id": session_id,
             "delegation_id": delegation_id,
@@ -40,6 +39,7 @@ class HttpTasks:
             "gliner": labels,
         }
         try:
+            await asyncio.to_thread(self.delegations.register, delegation_id, session_id)
             await asyncio.to_thread(
                 self.transport,
                 self.url,
@@ -47,7 +47,7 @@ class HttpTasks:
                 {"Content-Type": "application/json"},
             )
         except Exception:
-            self.delegations.unregister_delegation(delegation_id)
+            await asyncio.to_thread(self.delegations.unregister_delegation, delegation_id)
             raise
 
 

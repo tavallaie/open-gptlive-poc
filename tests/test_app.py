@@ -1,5 +1,6 @@
-import unittest
+import sqlite3
 import tempfile
+import unittest
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -98,6 +99,40 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(deliveries, [("item_cross_worker", "Completed on the owning worker")])
+
+    def test_accepted_callback_is_not_delivered_twice_if_ack_write_retries(self) -> None:
+        settings = self._settings()
+
+        class FailingOnceStore(SQLiteDelegations):
+            fail_next_completion = True
+
+            def complete(self, callback_id: str, accepted: bool) -> None:
+                if self.fail_next_completion:
+                    self.fail_next_completion = False
+                    raise sqlite3.OperationalError("temporary database lock")
+                super().complete(callback_id, accepted)
+
+        store = FailingOnceStore(settings.delegation_db_path)
+        app = create_app(settings, delegations=store)
+        deliveries: list[tuple[str, str]] = []
+
+        class Session:
+            def handle_task_result(self, delegation_id: str, content: str) -> bool:
+                deliveries.append((delegation_id, content))
+                return True
+
+        with TestClient(app) as client:
+            store.register("item_retry_ack", "session_1")
+            app.state.sessions["session_1"] = Session()
+            with self.assertLogs("open_gptlive_poc.app", level="ERROR"):
+                response = client.post(
+                    "/internal/delegations/item_retry_ack/result",
+                    headers={"Authorization": "Bearer secret"},
+                    json={"content": "Once only"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(deliveries, [("item_retry_ack", "Once only")])
 
 
 if __name__ == "__main__":
