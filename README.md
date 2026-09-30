@@ -1,123 +1,72 @@
 # open-gptlive-poc
 
-Minimal GPT-Live 1 WebSocket server foundation.
+A local GPT-Live voice server. You talk in the browser. The server transcribes you, decides whether to answer, and talks back.
 
-The server exposes the Live event contract over WebSocket and keeps model
-implementations behind replaceable ports. Python 3.14 is the local development
-version; package compatibility starts at Python 3.12.
+Python 3.12 or newer. Day-to-day development is on 3.14. Keep the whole stack on one machine. The budget is under 6 GB of VRAM, though that depends on which models you load.
 
-## High-level architecture
+This is a proof of concept. It will break. Treat it that way.
 
-```mermaid
-flowchart LR
-    Client[Live client] <-->|WebSocket /v1/live/sessions| Session[Per-session event loop]
-    Session --> VAD[VAD port]
-    Session --> ASR[ASR port]
-    Session --> Router[Router port]
-    Session --> Talker[Talker port]
-    Session --> Speaker[Speaker port]
-    Session --> Tasks[Tasks port]
-    VAD --> Silero[Silero adapter]
-    ASR --> Whisper[Faster-Whisper adapter]
-    Router --> Decision[Selectable System 1 provider]
-    Decision --> GLiNER[GLiNER2.5-Decide ONNX]
-    Decision --> Laya[Laya multilingual ONNX]
-    Talker --> LM[LM Studio adapter]
-    Speaker --> Supertonic[Supertonic adapter]
-    Tasks --> HTTP[Async task HTTP adapter]
+## Run
+
+Put secrets and model paths in an untracked `.env`. The process needs Silero VAD, Faster-Whisper, a System 1 router, and [LM Studio](https://lmstudio.ai) serving a chat model.
+
+```env
+GPTLIVE_SILERO_MODEL_PATH=/models/silero_vad.onnx
+GPTLIVE_WHISPER_MODEL_PATH=/models/faster-whisper
+GPTLIVE_GLINER_MODEL_PATH=/models/gliner2.5-decide-onnx
 ```
 
-The session layer owns protocol and lifecycle state. Adapters own external
-libraries and services; the session layer does not import model libraries.
-
-## Session flow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as FastAPI WebSocket
-    participant P as Session ports
-    participant T as Task system
-    participant D as Shared local SQLite queue
-
-    C->>S: session.start
-    S-->>C: session.started
-    C->>S: session.input_audio.append
-    S->>P: feed audio
-    P-->>S: transcript / decision / speech
-    S-->>C: transcript and output audio events
-    S->>T: async task POST
-    T->>S: delegation result callback
-    S->>D: enqueue for owning worker
-    D-->>S: worker delivery acknowledgement
-    S-->>C: callback speech
-    C->>S: session.close
-    S-->>C: session.closed + usage
-```
-
-Sessions report cumulative wall-clock time in `session.usage.updated` about
-once per minute and repeat the final seconds in `session.closed`. The server
-closes expired sessions with reason `expired`; configure the limit with
-`GPTLIVE_MAX_SESSION_DURATION_S` (default `3600`). Explicit closes use
-`close_requested`, and disconnected sockets use `connection_lost`. Closing a
-session cancels current and queued speech but does not cancel tasks already
-submitted to the external task system.
-
-## Development
-
-```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-```
-
-Run the server and browser voice UI together (WebSocket support is included in
-the project dependencies):
+Start LM Studio, then:
 
 ```bash
 uv run --env-file .env uvicorn --app-dir src open_gptlive_poc.server:app --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000> and choose **Start talking**. If
-`GPTLIVE_BEARER_TOKEN` is set, enter that value under **Connection settings**;
-if unset or empty, authentication is disabled and no token is needed. Keep the
-server bound to localhost when running without a token. The page is served by
-the same FastAPI app as `/v1/live/sessions`.
+Open <http://127.0.0.1:8000>, allow the microphone, and hit **Start talking**. The same button pauses and resumes the reply. **End conversation** closes the session. History stays until you start the next one.
 
-Configuration is loaded from `GPTLIVE_*` environment variables. Required
-credentials and local model paths must remain outside the repository.
+If `GPTLIVE_BEARER_TOKEN` has a value, paste it under Connection settings. An empty token turns auth off. Bind to localhost when you do that.
 
-The server writes structured JSON logs by default to
-`.gptlive-logs/server.jsonl` (rotated at 10 MB, retained for seven days). The
-terminal shows warnings and errors only; set `GPTLIVE_CONSOLE_LOG_LEVEL=INFO`
-to show concise routine logs, or `DEBUG` for audio-queue diagnostics. Set
-`GPTLIVE_LOG_LEVEL=DEBUG` to include debug records in the file too. Set
-`GPTLIVE_LOG_FILE` to change the path, or to an empty value to disable the file
-sink. Logs correlate turns with `session_id` and `turn_id` and include VAD,
-ASR, routing, LM Studio, TTS, and tool lifecycle events without recording
-audio, credentials, or transcript contents.
-To see why a turn did not reach the model, inspect `Router decision` first:
-its `talk`, `task`, `wait_for_user`, and `interrupt_current` fields explain the
-branch. A model call should then produce `Starting LM Studio reply`, followed
-by `LLM first token received` and TTS lifecycle records. For example:
+The FastAPI app serves the page at `/`, the browser socket at `/ws/live`, and the API socket at `/v1/live/sessions`.
 
 ```bash
-jq -c 'select(.record.message == "Router decision" or .record.message == "Starting LM Studio reply" or .record.message == "TTS synthesis started")' .gptlive-logs/server.jsonl
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Set the required model paths in an untracked local `.env` file or in the
-deployment environment. Do not add machine-specific paths to the repository.
+## How a turn works
 
-The router uses one selectable System 1 decision provider per process. GLiNER
-and Laya are alternatives, not sequential stages. The default is the ONNX
-export of [GLiNER2.5-Decide](https://huggingface.co/nishparadox/gliner2.5-decide-onnx):
+```mermaid
+flowchart LR
+    Client[Live client] <-->|WebSocket| Session[Per-session event loop]
+    Session --> VAD[VAD]
+    Session --> ASR[ASR]
+    Session --> Router[Router]
+    Session --> Talker[Talker]
+    Session --> Speaker[Speaker]
+    Session --> Tasks[Tasks]
+    VAD --> Silero[Silero]
+    ASR --> Whisper[Faster-Whisper]
+    Router --> Decision[GLiNER or Laya]
+    Talker --> LM[LM Studio]
+    Speaker --> Supertonic[Supertonic]
+    Tasks --> HTTP[HTTP + local SQLite]
+```
+
+Audio in, VAD, Whisper, then the router. From there the session either asks LM Studio to talk, posts a background task, waits, or interrupts itself. Supertonic speaks the reply as 100 ms chunks of mono 24 kHz PCM16LE.
+
+The session layer owns protocol and lifecycle. Adapters own the model libraries.
+
+Sessions send `session.usage.updated` about once a minute and again on `session.closed`. They expire after `GPTLIVE_MAX_SESSION_DURATION_S` seconds, default 3600. Close reasons are `expired`, `close_requested`, and `connection_lost`. A close cancels speech that is still queued. Work already posted to the task URL keeps going.
+
+## Router
+
+Pick one System 1 provider per process. The default is the ONNX export of [GLiNER2.5-Decide](https://huggingface.co/nishparadox/gliner2.5-decide-onnx):
 
 ```env
 GPTLIVE_ROUTER_PROVIDER=gliner
 GPTLIVE_GLINER_MODEL_PATH=/models/gliner2.5-decide-onnx
 ```
 
-To evaluate or run the multilingual Laya provider instead, install the ONNX
-extra and configure the original Laya tokenizer/configuration plus its ONNX
-graph:
+For the multilingual Laya provider, install the `laya` extra and point at the tokenizer plus the ONNX graph:
 
 ```env
 GPTLIVE_ROUTER_PROVIDER=laya
@@ -126,37 +75,15 @@ GPTLIVE_LAYA_SUBFOLDER=multilingual
 GPTLIVE_LAYA_ONNX_PATH=/models/laya-multilingual-onnx-int4/laya-multilingual-int4-blk32.onnx
 ```
 
-Laya uses typed `choice`, `score`, and `noul` questions and returns the same
-`RouteDecision` interface as GLiNER. Keep model downloads outside the
-repository; model paths and Hub IDs are configuration only. See the
-[Laya ONNX runtime](https://nandhakishorm.github.io/laya/reference/agent/)
-and [multilingual ONNX export](https://huggingface.co/yehor-oleksiuk/laya-multilingual-onnx).
+Laya uses typed `choice`, `score`, and `noul` questions and still returns `RouteDecision`. See the [Laya ONNX runtime](https://nandhakishorm.github.io/laya/reference/agent/) and the [multilingual ONNX export](https://huggingface.co/yehor-oleksiuk/laya-multilingual-onnx).
 
-LM Studio uses the OpenAI-compatible `/v1/chat/completions` endpoint by
-default. Set `GPTLIVE_LM_STUDIO_BASE_URL` to `/api/v1` only when using the
-native LM Studio API. Session replies advertise two real function tools to
-models that support OpenAI-compatible tool calls: `get_current_time` returns
-the server's local time with timezone, and `start_timer` schedules a
-session-scoped reminder that is spoken when it completes. These tools require
-the `/v1` API; timers are canceled when the live session closes.
+## LM Studio
 
-Supertonic supplies speech output. Its Python package downloads model files to
-the Hugging Face cache on first use. The Live voice `marin` maps to Supertonic
-style `F1`; override voice/style mappings with
-`GPTLIVE_SUPERTONIC_VOICE_MAP`, for example
-`{"marin":"F1","cedar":"M1"}`. Audio is resampled to mono 24 kHz PCM16LE
-and emitted as 100 ms deltas. The authenticated task callback endpoint accepts
-`POST /internal/delegations/{delegation_id}/result` with `{"content":"..."}`.
-Delegation IDs are registered before the task POST, so a fast callback cannot
-arrive before the live session knows the ID. For multiple workers on one
-machine, callback ownership and results are relayed through SQLite. All workers
-must use the same `GPTLIVE_DELEGATION_DB_PATH` on a local filesystem; do not put
-the database on a network share. The default is `.gptlive-delegations.sqlite3`
-in the current working directory. Callback rows are consumed once, and unknown
-or closed delegation IDs return 404. The result callback is authenticated with
-the configured bearer token.
+The talker calls the OpenAI-compatible `/v1/chat/completions` endpoint. Set `GPTLIVE_LM_STUDIO_BASE_URL` to an `/api/v1` URL only when you want the native LM Studio API.
 
-Test OpenAI-compatible streaming directly:
+On `/v1` the session advertises two tools: `get_current_time` for local time and timezone, and `start_timer` for a reminder spoken when it fires. Timers die with the session.
+
+Smoke-test streaming:
 
 ```bash
 curl -N http://localhost:1234/v1/chat/completions \
@@ -171,3 +98,41 @@ curl -N http://localhost:1234/v1/chat/completions \
     "stream": true
   }'
 ```
+
+## Speech
+
+Supertonic pulls weights into the Hugging Face cache on first use. Live voice `marin` maps to style `F1`. Override with `GPTLIVE_SUPERTONIC_VOICE_MAP`, for example `{"marin":"F1","cedar":"M1"}`.
+
+## Background tasks
+
+The server POSTs work to `GPTLIVE_TASKS_URL`. Results come in on `POST /internal/delegations/{delegation_id}/result` with `{"content":"..."}`, using the same bearer token. The session registers the ID before that POST, so a fast callback already has a row waiting.
+
+Several workers on one machine share a SQLite file through `GPTLIVE_DELEGATION_DB_PATH`. Default is `.gptlive-delegations.sqlite3` in the working directory. Keep that file on a local disk. Each result is consumed once. Unknown or closed IDs return 404.
+
+## Logs
+
+JSON goes to `.gptlive-logs/server.jsonl`, rotated at 10 MB and kept for seven days. The terminal prints warnings and errors. Set `GPTLIVE_CONSOLE_LOG_LEVEL=INFO` for routine lines, or `DEBUG` for audio-queue noise. `GPTLIVE_LOG_LEVEL` is the file. `GPTLIVE_LOG_FILE=` turns the file off.
+
+Records carry `session_id` and `turn_id`. They skip audio, credentials, and transcript text.
+
+When a turn never reaches the model, start with `Router decision`. The `talk`, `task`, `wait_for_user`, and `interrupt_current` fields say which branch ran. A model call should then log `Starting LM Studio reply`, `LLM first token received`, and TTS.
+
+```bash
+jq -c 'select(.record.message == "Router decision" or .record.message == "Starting LM Studio reply" or .record.message == "TTS synthesis started")' .gptlive-logs/server.jsonl
+```
+
+## Settings
+
+Everything is a `GPTLIVE_*` environment variable. Required paths and tokens stay out of git.
+
+| Variable | Role |
+| --- | --- |
+| `GPTLIVE_SILERO_MODEL_PATH` | Required. Silero VAD ONNX. |
+| `GPTLIVE_WHISPER_MODEL_PATH` | Required. Faster-Whisper weights. |
+| `GPTLIVE_GLINER_MODEL_PATH` | Required when the router is `gliner`. |
+| `GPTLIVE_LAYA_MODEL_PATH`, `GPTLIVE_LAYA_ONNX_PATH` | Required when the router is `laya`. |
+| `GPTLIVE_BEARER_TOKEN` | Optional. Empty means no auth. |
+| `GPTLIVE_LM_STUDIO_BASE_URL` | Default `http://127.0.0.1:1234/v1`. |
+| `GPTLIVE_LM_STUDIO_MODEL` | Default `local-model`. |
+| `GPTLIVE_MAX_SESSION_DURATION_S` | Default `3600`. |
+| `GPTLIVE_DELEGATION_DB_PATH` | Local SQLite file for task callbacks. |
