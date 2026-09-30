@@ -4,7 +4,7 @@ A local GPT-Live voice assistant. You talk in the browser. The server hears you,
 
 > It is a proof of concept. Run it on one machine. Expect bugs. Aim for under 6 GB of VRAM, depending on the models you load.
 
-![Live demo](assets/demo.mp4)
+https://github.com/user-attachments/assets/c229247c-b685-4761-97df-89e8fa630550
 
 ## What you get
 
