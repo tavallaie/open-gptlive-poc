@@ -1,6 +1,7 @@
 import json
 import base64
 import asyncio
+from threading import Event
 import unittest
 
 from open_gptlive_poc.live.session import LiveSession
@@ -37,7 +38,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
                 return "Hello"
 
         class Speaker:
-            def synthesize(self, text: str, voice: str) -> bytes:
+            def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:
                 self.request = (text, voice)
                 return b"\x01\x00" * 2_400
 
@@ -68,7 +69,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.01)
 
         class Speaker:
-            def synthesize(self, text: str, voice: str) -> bytes:
+            def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:
                 return b"\x00\x00" * 24_000
 
         websocket = SlowWebSocket()
@@ -87,7 +88,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_task_result_content_is_queued_for_speech(self) -> None:
         class Speaker:
-            def synthesize(self, text: str, voice: str) -> bytes:
+            def synthesize(self, text: str, voice: str, cancel_event: Event | None = None) -> bytes:
                 self.request = (text, voice)
                 return b"\x00\x00" * 2_400
 
@@ -104,6 +105,14 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.sent[0]["type"], "session.output_transcript.delta")
         self.assertEqual(websocket.sent[1]["type"], "session.output_audio.delta")
         self.assertFalse(session.handle_task_result("unknown", "Ignored"))
+        self.assertFalse(session.handle_task_result("item_1", "Repeated"))
+
+    async def test_closing_session_rejects_task_callback(self) -> None:
+        session = LiveSession(FakeWebSocket(), self._settings(), lambda: None)
+        session.state.delegation_ids.add("item_1")
+        session.state.closing = True
+
+        self.assertFalse(session.handle_task_result("item_1", "Late result"))
 
     async def test_transcript_talk_task_and_both_paths(self) -> None:
         class Router:

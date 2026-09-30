@@ -9,6 +9,7 @@ from base64 import b64decode, b64encode
 from binascii import Error as Base64Error
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import Event as ThreadEvent
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
@@ -70,6 +71,7 @@ class LiveSession:
         self.started_at = time.monotonic()
         self._speech_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
         self._utterance_task: asyncio.Task[None] | None = None
+        self._synthesis_cancel: ThreadEvent | None = None
 
     async def run(self) -> None:
         """Read, validate, route, and acknowledge events until disconnect."""
@@ -273,23 +275,28 @@ class LiveSession:
 
     def handle_task_result(self, delegation_id: str, content: str) -> bool:
         """Queue speech for a callback belonging to this session."""
-        if delegation_id not in self.state.delegation_ids or not content.strip():
+        if self.state.closing or delegation_id not in self.state.delegation_ids or not content.strip():
             return False
+        if not self._queue_speech(content):
+            return False
+        self.state.delegation_ids.remove(delegation_id)
         self.state.commentary.append(content)
-        self._queue_speech(content)
         return True
 
-    def _queue_speech(self, text: str, *, transcript_sent: bool = False) -> None:
+    def _queue_speech(self, text: str, *, transcript_sent: bool = False) -> bool:
         """Queue one utterance; the worker synthesizes and sends it serially."""
         speaker = getattr(self.ports, "speaker", None) if self.ports is not None else None
         if not text.strip() or not callable(getattr(speaker, "synthesize", None)):
-            return
+            return False
         self._speech_queue.put_nowait((text, transcript_sent))
         if self._utterance_task is None or self._utterance_task.done():
             self._utterance_task = asyncio.create_task(self._drain_speech_queue())
+        return True
 
     def _cancel_speech(self) -> None:
         """Cancel playback and discard queued utterances on barge-in."""
+        if self._synthesis_cancel is not None:
+            self._synthesis_cancel.set()
         if self._utterance_task is not None and not self._utterance_task.done():
             self._utterance_task.cancel()
         self._utterance_task = None
@@ -307,7 +314,11 @@ class LiveSession:
             try:
                 if not transcript_sent:
                     await self._send(ServerEvent("session.output_transcript.delta", {"text": text}))
-                audio = await asyncio.to_thread(self.ports.speaker.synthesize, text, self.state.voice)
+                cancellation = ThreadEvent()
+                self._synthesis_cancel = cancellation
+                audio = await asyncio.to_thread(
+                    self.ports.speaker.synthesize, text, self.state.voice, cancellation
+                )
                 for offset in range(0, len(audio), _OUTPUT_AUDIO_CHUNK_BYTES):
                     chunk = audio[offset : offset + _OUTPUT_AUDIO_CHUNK_BYTES]
                     start_ms = offset // 48
@@ -324,6 +335,7 @@ class LiveSession:
             except Exception:
                 await self._send_error("internal_error", "Speaker adapter failed")
             finally:
+                self._synthesis_cancel = None
                 self._speech_queue.task_done()
 
     async def _create_task(self, transcript: str, decision: RouteDecision) -> str:

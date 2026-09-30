@@ -41,6 +41,30 @@ class AppTests(unittest.TestCase):
         self.assertEqual(accepted.json(), {"status": "accepted"})
         self.assertEqual(deliveries, [("item_1", "Done")])
 
+    def test_callback_rejects_malformed_oversized_and_long_content(self) -> None:
+        app = create_app(
+            Settings(
+                bearer_token="secret",
+                silero_model_path="silero",
+                whisper_model_path="whisper",
+                gliner_model_path="gliner",
+            )
+        )
+        client = TestClient(app)
+        headers = {"Authorization": "Bearer secret"}
+
+        malformed = client.post("/internal/delegations/item_1/result", headers=headers, content=b"{")
+        oversized = client.post("/internal/delegations/item_1/result", headers=headers, content=b" " * 65_537)
+        too_many_words = client.post(
+            "/internal/delegations/item_1/result",
+            headers=headers,
+            json={"content": "word " * 501},
+        )
+
+        self.assertEqual(malformed.status_code, 400)
+        self.assertEqual(oversized.status_code, 413)
+        self.assertEqual(too_many_words.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

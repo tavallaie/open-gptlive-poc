@@ -1,5 +1,6 @@
 """FastAPI composition root for the GPT-Live server."""
 
+import json
 from dataclasses import dataclass
 from collections.abc import Callable
 
@@ -7,6 +8,10 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 
 from .config import Settings
 from .ports import ASR, Router, Speaker, Tasks, Talker, VAD
+
+
+_MAX_CALLBACK_BODY_BYTES = 64 * 1024
+_MAX_CALLBACK_WORDS = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,10 +49,20 @@ def create_app(
 
         if not authenticate(request.headers.get("authorization"), settings.bearer_token or ""):
             raise HTTPException(status_code=401, detail="Unauthorized")
-        payload = await request.json()
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > _MAX_CALLBACK_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="callback body is too large")
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="request body must be valid JSON") from exc
         content = payload.get("content") if isinstance(payload, dict) else None
         if not isinstance(content, str) or not content.strip():
             raise HTTPException(status_code=422, detail="content must be a non-empty string")
+        if len(content.split()) > _MAX_CALLBACK_WORDS:
+            raise HTTPException(status_code=422, detail="content must contain at most 500 words")
         for session in app.state.sessions.values():
             if session.handle_task_result(delegation_id, content):
                 return {"status": "accepted"}
