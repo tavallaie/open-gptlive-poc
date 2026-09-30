@@ -77,6 +77,14 @@ class LiveSession:
 
     async def run(self) -> None:
         """Read, validate, route, and acknowledge events until disconnect."""
+        try:
+            await self._run()
+        finally:
+            if not self.state.closing:
+                await self.close("connection_lost")
+
+    async def _run(self) -> None:
+        """Run the event loop; ``run`` owns cleanup for every exit path."""
         while not self.state.closing:
             if self.state.started:
                 now = time.monotonic()

@@ -315,6 +315,35 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.sent[-1]["type"], "session.closed")
         self.assertEqual(websocket.sent[-1]["reason"], "connection_lost")
 
+    async def test_unexpected_run_failure_still_closes_session_resources(self) -> None:
+        class BrokenWebSocket(FakeWebSocket):
+            async def receive_text(self) -> str:
+                if self.events:
+                    return await super().receive_text()
+                raise RuntimeError("receive failed")
+
+        class Resource:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        websocket = BrokenWebSocket({"type": "session.start", "model": "gpt-live-1"})
+        resource = Resource()
+        session = LiveSession(
+            websocket,
+            self._settings(),
+            lambda: type("Ports", (), {"vad": resource})(),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "receive failed"):
+            await session.run()
+
+        self.assertEqual(websocket.sent[-1]["type"], "session.closed")
+        self.assertEqual(websocket.sent[-1]["reason"], "connection_lost")
+        self.assertTrue(resource.closed)
+
     async def test_close_cancels_current_and_queued_speech(self) -> None:
         synthesis_started = Event()
 
