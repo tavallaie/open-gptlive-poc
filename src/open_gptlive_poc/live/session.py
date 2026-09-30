@@ -249,8 +249,13 @@ class LiveSession:
                 del self.state.history[:-_MAX_HISTORY_TURNS]
                 self.state.transcripts.append(transcript)
             if decision.task:
-                delegation_id = await self._create_task(transcript, decision)
+                delegation_id = f"item_{uuid4().hex}"
                 self.state.delegation_ids.add(delegation_id)
+                try:
+                    await self._create_task(transcript, decision, delegation_id)
+                except Exception:
+                    self.state.delegation_ids.discard(delegation_id)
+                    raise
                 await self._send(
                     ServerEvent(
                         "session.delegation.created",
@@ -339,17 +344,14 @@ class LiveSession:
                     self._synthesis_cancel = None
                 self._speech_queue.task_done()
 
-    async def _create_task(self, transcript: str, decision: RouteDecision) -> str:
+    async def _create_task(self, transcript: str, decision: RouteDecision, delegation_id: str) -> None:
         """Create one outbound task while preserving the router labels."""
         method = getattr(self.ports.tasks, "create", None)
         if method is None:
             raise RuntimeError("task adapter is not configured")
-        result = method(self.state.session_id, transcript, dict(decision.labels))
+        result = method(delegation_id, self.state.session_id, transcript, dict(decision.labels))
         if inspect.isawaitable(result):
-            result = await result
-        if not isinstance(result, str) or not result:
-            raise RuntimeError("task adapter returned an invalid delegation id")
-        return result
+            await result
 
     async def _call_port(self, method_name: str, *args: Any) -> None:
         """Call an optional port method without coupling this layer to adapters."""

@@ -20,6 +20,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.vad_pause_ms, 700)
         self.assertEqual(settings.supertonic_voice_map, {"marin": "F1"})
         self.assertEqual(settings.router_provider, "gliner")
+        self.assertEqual(settings.delegation_db_path, ".gptlive-delegations.sqlite3")
 
     def test_missing_required_values_are_reported(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "GPTLIVE_BEARER_TOKEN"):

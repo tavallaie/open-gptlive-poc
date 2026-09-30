@@ -32,6 +32,7 @@ class Settings:
     lm_studio_reasoning_effort: str = "none"
     supertonic_voice_map: dict[str, str] | None = None
     tasks_url: str = "http://127.0.0.1:8080/tasks"
+    delegation_db_path: str = ".gptlive-delegations.sqlite3"
     vad_pause_ms: int = 700
     gliner_task_threshold: float = 0.5
     max_session_duration_s: int = 3600
@@ -61,6 +62,7 @@ class Settings:
             lm_studio_reasoning_effort=raw.get("lm_studio_reasoning_effort", defaults.lm_studio_reasoning_effort),
             supertonic_voice_map=_voice_map(raw.get("supertonic_voice_map")),
             tasks_url=raw.get("tasks_url", defaults.tasks_url),
+            delegation_db_path=raw.get("delegation_db_path", defaults.delegation_db_path),
             vad_pause_ms=_integer(raw.get("vad_pause_ms"), defaults.vad_pause_ms, "GPTLIVE_VAD_PAUSE_MS"),
             gliner_task_threshold=_number(raw.get("gliner_task_threshold"), defaults.gliner_task_threshold, "GPTLIVE_GLINER_TASK_THRESHOLD"),
             max_session_duration_s=_integer(raw.get("max_session_duration_s"), defaults.max_session_duration_s, "GPTLIVE_MAX_SESSION_DURATION_S"),
@@ -92,6 +94,8 @@ class Settings:
             raise ConfigurationError("GPTLIVE_GLINER_TASK_THRESHOLD must be between 0 and 1")
         if self.max_session_duration_s <= 0:
             raise ConfigurationError("GPTLIVE_MAX_SESSION_DURATION_S must be positive")
+        if not self.delegation_db_path.strip():
+            raise ConfigurationError("GPTLIVE_DELEGATION_DB_PATH must not be empty")
         return self
 
 

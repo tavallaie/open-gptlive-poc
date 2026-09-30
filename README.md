@@ -38,6 +38,7 @@ sequenceDiagram
     participant S as FastAPI WebSocket
     participant P as Session ports
     participant T as Task system
+    participant D as Shared local SQLite queue
 
     C->>S: session.start
     S-->>C: session.started
@@ -46,7 +47,9 @@ sequenceDiagram
     P-->>S: transcript / decision / speech
     S-->>C: transcript and output audio events
     S->>T: async task POST
-    T-->>S: delegation result callback
+    T->>S: delegation result callback
+    S->>D: enqueue for owning worker
+    D-->>S: worker delivery acknowledgement
     S-->>C: callback speech
     C->>S: session.close
     S-->>C: session.closed + usage
@@ -101,6 +104,14 @@ style `F1`; override voice/style mappings with
 `{"marin":"F1","cedar":"M1"}`. Audio is resampled to mono 24 kHz PCM16LE
 and emitted as 100 ms deltas. The authenticated task callback endpoint accepts
 `POST /internal/delegations/{delegation_id}/result` with `{"content":"..."}`.
+Delegation IDs are registered before the task POST, so a fast callback cannot
+arrive before the live session knows the ID. For multiple workers on one
+machine, callback ownership and results are relayed through SQLite. All workers
+must use the same `GPTLIVE_DELEGATION_DB_PATH` on a local filesystem; do not put
+the database on a network share. The default is `.gptlive-delegations.sqlite3`
+in the current working directory. Callback rows are consumed once, and unknown
+or closed delegation IDs return 404. The result callback is authenticated with
+the configured bearer token.
 
 Test OpenAI-compatible streaming directly:
 
