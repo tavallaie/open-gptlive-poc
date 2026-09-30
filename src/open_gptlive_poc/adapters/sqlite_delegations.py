@@ -77,11 +77,18 @@ class SQLiteDelegations:
             connection.execute("BEGIN IMMEDIATE")
             self._prune(connection, now)
             owner = connection.execute(
-                "SELECT worker_id FROM delegations WHERE delegation_id=? AND status='active'",
+                "SELECT worker_id, status FROM delegations WHERE delegation_id=?",
                 (delegation_id,),
             ).fetchone()
             if owner is None:
                 return None
+            if owner[1] == "pending":
+                existing = connection.execute(
+                    "SELECT callback_id, content FROM callbacks "
+                    "WHERE delegation_id=? AND status='pending'",
+                    (delegation_id,),
+                ).fetchone()
+                return existing[0] if existing is not None and existing[1] == content else None
             connection.execute(
                 "UPDATE delegations SET status='pending' WHERE delegation_id=?",
                 (delegation_id,),
@@ -133,7 +140,6 @@ class SQLiteDelegations:
             ).fetchone()
             if row is None or row[0] == "pending":
                 return None
-            connection.execute("DELETE FROM callbacks WHERE callback_id=?", (callback_id,))
         return row[0] == "accepted"
 
     def unregister_session(self, session_id: str) -> None:

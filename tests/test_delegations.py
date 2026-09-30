@@ -41,9 +41,11 @@ class SQLiteDelegationTests(unittest.TestCase):
                 session_worker.pending(),
                 [(callback_id, "item_1", "Task finished")],
             )
-            self.assertIsNone(callback_worker.enqueue("item_1", "Duplicate"))
+            self.assertEqual(callback_worker.enqueue("item_1", "Task finished"), callback_id)
+            self.assertIsNone(callback_worker.enqueue("item_1", "Different content"))
             session_worker.complete(callback_id, accepted=True)
 
+            self.assertTrue(callback_worker.result(callback_id))
             self.assertTrue(callback_worker.result(callback_id))
             self.assertIsNone(callback_worker.enqueue("item_1", "Late result"))
             session_worker.close_worker()
