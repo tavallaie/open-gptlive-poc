@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -22,6 +23,8 @@ class SQLiteDelegations:
         self.worker_id = uuid4().hex
 
     def initialize(self) -> None:
+        # Refresh after startup as app factories may have been imported pre-fork.
+        self.worker_id = f"{os.getpid()}-{uuid4().hex}"
         path = Path(self.database_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:

@@ -24,7 +24,31 @@ def _post_from_process(database: str, result_queue) -> None:
     caller.close_worker()
 
 
+def _initialize_inherited_store(store: SQLiteDelegations, result_queue) -> None:
+    store.initialize()
+    result_queue.put(store.worker_id)
+    store.close_worker()
+
+
 class SQLiteDelegationTests(unittest.TestCase):
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "requires fork")
+    def test_forked_worker_gets_a_new_identity_after_preload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            owner = SQLiteDelegations(str(Path(directory) / "delegations.sqlite3"))
+            owner.initialize()
+            parent_worker_id = owner.worker_id
+            context = multiprocessing.get_context("fork")
+            result_queue = context.Queue()
+            process = context.Process(target=_initialize_inherited_store, args=(owner, result_queue))
+            process.start()
+
+            child_worker_id = result_queue.get(timeout=5)
+            process.join(timeout=5)
+
+            self.assertNotEqual(child_worker_id, parent_worker_id)
+            self.assertEqual(process.exitcode, 0)
+            owner.close_worker()
+
     def test_callback_crosses_independent_worker_stores_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = str(Path(directory) / "delegations.sqlite3")

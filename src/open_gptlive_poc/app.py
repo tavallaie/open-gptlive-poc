@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import sqlite3
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -88,12 +89,18 @@ def create_app(
             raise HTTPException(status_code=422, detail="content must be a non-empty string")
         if len(content.split()) > _MAX_CALLBACK_WORDS:
             raise HTTPException(status_code=422, detail="content must contain at most 500 words")
-        callback_id = callback_store.enqueue(delegation_id, content)
+        try:
+            callback_id = callback_store.enqueue(delegation_id, content)
+        except sqlite3.Error as exc:
+            raise HTTPException(status_code=503, detail="Callback store unavailable") from exc
         if callback_id is None:
             raise HTTPException(status_code=404, detail="Unknown delegation")
         deadline = monotonic() + _CALLBACK_WAIT_SECONDS
         while monotonic() < deadline:
-            accepted = callback_store.result(callback_id)
+            try:
+                accepted = callback_store.result(callback_id)
+            except sqlite3.Error as exc:
+                raise HTTPException(status_code=503, detail="Callback store unavailable") from exc
             if accepted is not None:
                 if accepted:
                     return {"status": "accepted"}
