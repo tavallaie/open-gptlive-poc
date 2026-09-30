@@ -10,6 +10,7 @@ from base64 import b64decode, b64encode
 from binascii import Error as Base64Error
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import count
 from threading import Event as ThreadEvent
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
@@ -17,7 +18,7 @@ from uuid import uuid4
 from loguru import logger
 
 from ..config import Settings
-from ..ports.router import RouteDecision
+from ..ports.router import RouteDecision, ToolProfile
 from ..ports.talker import TalkRequest, TranscriptTurn
 from .protocol import ClientEvent, ProtocolError, ServerEvent, parse_client_event
 from .session_tools import SessionTools
@@ -44,12 +45,19 @@ _MAX_PENDING_TRANSCRIPT_WORDS = 500
 _OUTPUT_AUDIO_CHUNK_BYTES = 4_800
 _USAGE_UPDATE_INTERVAL_SECONDS = 60
 _DEFAULT_VOICE_INSTRUCTIONS = (
-    "You are a helpful, natural voice conversation partner. Respond to the user's latest meaning, "
-    "including corrections and clarifications, and use the conversation history for context. "
-    "Speak plainly and warmly, usually in one or two concise sentences. Use natural spoken language; "
-    "avoid headings, bullets, markdown, long lists, and needless repetition. Ask a brief clarifying "
-    "question when the request is genuinely ambiguous. Do not narrate that you are thinking or "
-    "listening, and do not invent actions or facts."
+    "You are a helpful, natural voice conversation partner. Answer the user's latest meaning, "
+    "including corrections, using conversation history for context. Speak plainly and warmly, "
+    "usually in one or two concise sentences. Avoid headings, bullets, markdown, long lists, and "
+    "needless repetition. Ask a brief clarifying question only when needed to do the requested task. "
+    "Do not narrate that you are thinking or listening, and never claim an action succeeded unless "
+    "a tool confirms it. When a requested action is supported by an available tool, call the tool; "
+    "do not merely restate the request or announce a proposed action as if it happened. Treat tool calls "
+    "as actions, not topics to elaborate on: after a tool returns, "
+    "state only the useful outcome and stop. Do not append stock follow-up offers, generic questions, "
+    "or unsolicited suggestions. When a tool starts background work, acknowledge that it started once; "
+    "do not promise or narrate later notifications because the runtime handles their delivery. Background "
+    "results may be silent, deferred, or delivered after a sentence by the runtime; do not invent or "
+    "repeat a separate notification."
 )
 
 
@@ -72,6 +80,7 @@ class SessionState:
     vad_pending_audio: bytearray = field(default_factory=bytearray)
     voice: str = "marin"
     delegation_ids: set[str] = field(default_factory=set)
+    delegation_requests: dict[str, str] = field(default_factory=dict)
     pending_transcripts: list[str] = field(default_factory=list)
 
 
@@ -86,11 +95,16 @@ class LiveSession:
         self.log = logger.bind(component="live-session", session_id=self.state.session_id)
         self.ports: Ports | None = None
         self.started_at = 0.0
-        self._speech_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+        self._speech_queue: asyncio.PriorityQueue[tuple[int, int, str, bool]] = asyncio.PriorityQueue()
+        self._speech_order = count()
         self._utterance_task: asyncio.Task[None] | None = None
         self._turn_tasks: set[asyncio.Task[None]] = set()
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._reply_task: asyncio.Task[str] | None = None
         self._pending_assistant_reply: str | None = None
+        self._waiting_for_background_input = False
+        self._background_input_ready = asyncio.Event()
+        self._background_input_ready.set()
         self._routing_lock = asyncio.Lock()
         self._can_speak = asyncio.Event()
         self._can_speak.set()
@@ -333,6 +347,15 @@ class LiveSession:
         """Route one completed ASR transcript through the session adapters."""
         if not transcript.strip() or self.ports is None:
             return
+        was_waiting_for_background_input = self._waiting_for_background_input
+        if was_waiting_for_background_input:
+            self._waiting_for_background_input = False
+            self._background_input_ready.set()
+            self.log.info("User responded to a background clarification")
+            self._cancel_response()
+            self._cancel_speech()
+            self._pending_assistant_reply = None
+            await self._send(ServerEvent("session.output_audio.cancelled"))
         try:
             async with self._routing_lock:
                 combined_transcript = " ".join((*self.state.pending_transcripts, transcript))
@@ -364,7 +387,7 @@ class LiveSession:
                     return
                 self.state.pending_transcripts.clear()
                 transcript = combined_transcript
-            if decision.interrupt_current:
+            if decision.interrupt_current and not was_waiting_for_background_input:
                 self.log.info("GLiNER classified a barge-in; cancelling active response")
                 self._cancel_response()
                 self._cancel_speech()
@@ -393,6 +416,8 @@ class LiveSession:
                     history=tuple(self.state.history),
                     tools=self._tools,
                 )
+                if self._tools is not None:
+                    self._tools.set_request_context(transcript)
                 self.state.history.append(TranscriptTurn("user", transcript))
                 del self.state.history[:-_MAX_HISTORY_TURNS]
                 reply_task = asyncio.create_task(self._reply(request))
@@ -416,10 +441,12 @@ class LiveSession:
             if decision.task:
                 delegation_id = f"item_{uuid4().hex}"
                 self.state.delegation_ids.add(delegation_id)
+                self.state.delegation_requests[delegation_id] = transcript
                 try:
                     await self._create_task(transcript, decision, delegation_id)
                 except Exception:
                     self.state.delegation_ids.discard(delegation_id)
+                    self.state.delegation_requests.pop(delegation_id, None)
                     self.log.exception("Task dispatch failed", delegation_id=delegation_id)
                     await self._send_error("task_dispatch_failed", "Task service is unavailable")
                 else:
@@ -470,10 +497,18 @@ class LiveSession:
             speech_buffer += fragment
             chunks, speech_buffer = _take_speech_chunks(speech_buffer)
             for chunk in chunks:
-                self._queue_speech(chunk, transcript_sent=True)
+                self._queue_speech(
+                    chunk,
+                    transcript_sent=True,
+                    priority=bool(getattr(request.tools, "urgent_tool_called", False)),
+                )
         chunks, _ = _take_speech_chunks(speech_buffer, final=True)
         for chunk in chunks:
-            self._queue_speech(chunk, transcript_sent=True)
+            self._queue_speech(
+                chunk,
+                transcript_sent=True,
+                priority=bool(getattr(request.tools, "urgent_tool_called", False)),
+            )
         reply = "".join(fragments)
         self.log.info(
             "LLM stream completed",
@@ -487,20 +522,87 @@ class LiveSession:
         """Queue speech for a callback belonging to this session."""
         if self.state.closing or delegation_id not in self.state.delegation_ids or not content.strip():
             return False
-        if not self._queue_speech(content):
-            return False
         self.state.delegation_ids.remove(delegation_id)
-        self.state.commentary.append(content)
-        self._announce_background("A background result is ready; I’ll tell you next.")
+        request = self.state.delegation_requests.pop(delegation_id, "")
+        self._spawn_background_delivery(request, content)
         return True
 
-    def _notify_timer(self, content: str) -> bool:
+    def _notify_timer(self, content: str, request: str, profile: ToolProfile) -> bool:
         """Deliver a completed timer to the live speech queue."""
-        if self.state.closing or not self._queue_speech(content):
+        if self.state.closing:
             return False
-        self.state.commentary.append(content)
-        self._announce_background("Your reminder is ready; I’ll tell you next.")
+        self._spawn_background_delivery(request, content, profile)
         return True
+
+    def _spawn_background_delivery(
+        self, request: str, content: str, profile: ToolProfile | None = None
+    ) -> None:
+        task = asyncio.create_task(
+            self._deliver_background_result(request, content, profile)
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _deliver_background_result(
+        self, request: str, content: str, profile: ToolProfile | None = None
+    ) -> None:
+        """Classify and deliver a real background result without losing it."""
+        if self.state.closing:
+            return
+        delivery = "after_playback"
+        classifier = getattr(getattr(self.ports, "router", None), "classify_background_delivery", None)
+        if callable(classifier):
+            try:
+                delivery = await asyncio.to_thread(classifier, request, content, profile)
+            except Exception:
+                self.log.exception("Background result classification failed; deferring speech")
+        if self.state.closing:
+            return
+        if delivery not in {"silent", "after_playback", "interrupt_after_sentence", "wait_for_user"}:
+            delivery = "after_playback"
+        if profile is not None and profile.urgency == "urgent":
+            delivery = "interrupt_after_sentence"
+        self.log.info(
+            "Background result delivery classified",
+            delivery=delivery,
+            tool_execution=profile.execution if profile is not None else None,
+            tool_urgency=profile.urgency if profile is not None else None,
+        )
+        if delivery == "silent":
+            self.state.commentary.append(content)
+            await self._send(
+                ServerEvent("session.background.update", {"message": "Background work completed quietly."})
+            )
+            return
+        if delivery in {"interrupt_after_sentence", "wait_for_user"}:
+            if delivery == "wait_for_user":
+                self._waiting_for_background_input = True
+                self._background_input_ready.clear()
+                self.state.history.append(TranscriptTurn("assistant", content))
+                del self.state.history[:-_MAX_HISTORY_TURNS]
+                message = "I need your instructions before I continue."
+            else:
+                message = "Important background result; pausing after this sentence."
+            await self._send(
+                ServerEvent("session.background.update", {"message": message})
+            )
+            await self._send(
+                ServerEvent(
+                    "session.output_audio.interrupt",
+                    {"after_sentence": True, "await_user": delivery == "wait_for_user"},
+                )
+            )
+        else:
+            await self._send(
+                ServerEvent("session.background.update", {"message": "Background result ready; I’ll tell you when I finish speaking."})
+            )
+        self.state.commentary.append(content)
+        if not self._queue_speech(
+            content, priority=delivery in {"interrupt_after_sentence", "wait_for_user"}
+        ):
+            if delivery in {"interrupt_after_sentence", "wait_for_user"}:
+                self._waiting_for_background_input = False
+                await self._send(ServerEvent("session.output_audio.interrupt_aborted"))
 
     def _timer_started(self, seconds: int, message: str) -> None:
         """Tell the client that a real background timer has been scheduled."""
@@ -513,12 +615,14 @@ class LiveSession:
             self._send(ServerEvent("session.background.update", {"message": message}))
         )
 
-    def _queue_speech(self, text: str, *, transcript_sent: bool = False) -> bool:
+    def _queue_speech(
+        self, text: str, *, transcript_sent: bool = False, priority: bool = False
+    ) -> bool:
         """Queue one utterance; the worker synthesizes and sends it serially."""
         speaker = getattr(self.ports, "speaker", None) if self.ports is not None else None
         if not text.strip() or not callable(getattr(speaker, "synthesize", None)):
             return False
-        self._speech_queue.put_nowait((text, transcript_sent))
+        self._speech_queue.put_nowait((0 if priority else 1, next(self._speech_order), text, transcript_sent))
         self.log.debug("Speech queued", text_chars=len(text), queue_size=self._speech_queue.qsize())
         if self._utterance_task is None or self._utterance_task.done():
             self._utterance_task = asyncio.create_task(self._drain_speech_queue())
@@ -547,7 +651,7 @@ class LiveSession:
         """Synthesize queued text and emit timed 24 kHz PCM chunks."""
         while not self._speech_queue.empty():
             await self._can_speak.wait()
-            text, transcript_sent = await self._speech_queue.get()
+            priority, _, text, transcript_sent = await self._next_speech()
             cancellation: ThreadEvent | None = None
             try:
                 if not transcript_sent:
@@ -555,8 +659,15 @@ class LiveSession:
                 cancellation = ThreadEvent()
                 self._synthesis_cancel = cancellation
                 synthesis_started = time.perf_counter()
-                self.log.info("TTS synthesis started", text_chars=len(text))
-                await self._send(ServerEvent("session.output_audio.started", {"text": text}))
+                self.log.info(
+                    "TTS synthesis started",
+                    text_chars=len(text),
+                    priority=priority == 0,
+                    queue_size=self._speech_queue.qsize(),
+                )
+                await self._send(
+                    ServerEvent("session.output_audio.started", {"text": text, "priority": priority == 0})
+                )
                 audio = await asyncio.to_thread(
                     self.ports.speaker.synthesize, text, self.state.voice, cancellation
                 )
@@ -572,7 +683,7 @@ class LiveSession:
                 await self._send(
                     ServerEvent(
                         "session.output_audio.transcript",
-                        {"text": text, "start_ms": start_ms, "end_ms": end_ms},
+                        {"text": text, "start_ms": start_ms, "end_ms": end_ms, "priority": priority == 0},
                     )
                 )
                 for offset in range(0, len(audio), _OUTPUT_AUDIO_CHUNK_BYTES):
@@ -587,6 +698,7 @@ class LiveSession:
                                 "delta": b64encode(chunk).decode("ascii"),
                                 "start_ms": start_ms,
                                 "end_ms": end_ms,
+                                "priority": priority == 0,
                             },
                         )
                     )
@@ -595,10 +707,27 @@ class LiveSession:
             except Exception:
                 self.log.exception("TTS synthesis or delivery failed")
                 await self._send_error("internal_error", "Speaker adapter failed")
+                if priority == 0:
+                    await self._send(ServerEvent("session.output_audio.interrupt_aborted"))
             finally:
                 if cancellation is not None and self._synthesis_cancel is cancellation:
                     self._synthesis_cancel = None
                 self._speech_queue.task_done()
+
+    async def _next_speech(self) -> tuple[int, int, str, bool]:
+        """Hold ordinary reply speech while a background result awaits user input."""
+        while self._waiting_for_background_input:
+            try:
+                item = self._speech_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                await self._background_input_ready.wait()
+                continue
+            if item[0] == 0:
+                return item
+            self._speech_queue.task_done()
+            self._speech_queue.put_nowait(item)
+            await self._background_input_ready.wait()
+        return await self._speech_queue.get()
 
     async def _create_task(self, transcript: str, decision: RouteDecision, delegation_id: str) -> None:
         """Create one outbound task while preserving the router labels."""
@@ -644,13 +773,19 @@ class LiveSession:
             await self._tools.close()
             self._tools = None
         self._can_speak.set()
+        self._waiting_for_background_input = False
+        self._background_input_ready.set()
         self._cancel_response()
         turn_tasks = tuple(self._turn_tasks)
         for task in turn_tasks:
             task.cancel()
+        background_tasks = tuple(self._background_tasks)
+        for task in background_tasks:
+            task.cancel()
         utterance_task = self._utterance_task
         self._cancel_speech()
         await asyncio.gather(*turn_tasks, return_exceptions=True)
+        await asyncio.gather(*background_tasks, return_exceptions=True)
         if utterance_task is not None:
             await asyncio.gather(utterance_task, return_exceptions=True)
         try:

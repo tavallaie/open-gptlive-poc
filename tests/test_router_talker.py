@@ -9,6 +9,7 @@ from open_gptlive_poc.adapters.http_tasks import HttpTasks
 from open_gptlive_poc.adapters.laya_router import LayaRouter
 from open_gptlive_poc.adapters.lmstudio_talker import LMStudioTalker
 from open_gptlive_poc.adapters.sqlite_delegations import SQLiteDelegations
+from open_gptlive_poc.ports.router import ToolProfile
 from open_gptlive_poc.ports.talker import TalkRequest, TranscriptTurn
 
 
@@ -23,6 +24,82 @@ class FakeGLiNER:
 
 
 class RouterTests(unittest.TestCase):
+    def test_background_delivery_uses_original_request_and_real_result(self):
+        model = FakeGLiNER({
+            "delivery": {
+                "silent": 0.92,
+                "after_playback": 0.05,
+                "interrupt_after_sentence": 0.03,
+            },
+            "confirmation": {"confirmation_requested": 0.02, "no_confirmation_requested": 0.98},
+        })
+        router = GLiNERRouter("unused", model=model)
+
+        profile = ToolProfile("background", "urgent")
+        delivery = router.classify_background_delivery("Add this to my notes.", "Added to notes.", profile)
+
+        self.assertEqual(delivery, "silent")
+        text, questions, confidence = model.calls[0]
+        self.assertIn("Add this to my notes.", text)
+        self.assertIn("Added to notes.", text)
+        self.assertIn("execution=background, urgency=urgent", text)
+        self.assertIn("interrupt_after_sentence", questions["delivery"])
+        self.assertIn("confirmation_requested", questions["confirmation"])
+        self.assertTrue(confidence)
+
+    def test_explicit_confirmation_request_cannot_be_silent(self):
+        model = FakeGLiNER({
+            "delivery": {"silent": 0.94, "after_playback": 0.04, "interrupt_after_sentence": 0.02},
+            "confirmation": {"confirmation_requested": 0.91, "no_confirmation_requested": 0.09},
+        })
+        router = GLiNERRouter("unused", model=model)
+
+        delivery = router.classify_background_delivery(
+            "Add this and confirm when it's done.", "Added successfully."
+        )
+
+        self.assertEqual(delivery, "after_playback")
+        self.assertIn("explicitly requests confirmation", model.calls[0][0])
+
+    def test_result_requiring_a_user_decision_waits_for_user(self):
+        model = FakeGLiNER({
+            "delivery": {
+                "silent": 0.01,
+                "after_playback": 0.03,
+                "interrupt_after_sentence": 0.06,
+                "wait_for_user": 0.9,
+            },
+            "input_required": {"input_required": 0.94, "no_input_required": 0.06},
+            "confirmation": {"confirmation_requested": 0.02, "no_confirmation_requested": 0.98},
+        })
+        router = GLiNERRouter("unused", model=model)
+
+        delivery = router.classify_background_delivery(
+            "Set up the requested change.", "Which destination should I use?"
+        )
+
+        self.assertEqual(delivery, "wait_for_user")
+        self.assertIn("additional instructions", model.calls[0][0])
+
+    def test_completed_result_is_not_waiting_for_user_without_evidence(self):
+        model = FakeGLiNER({
+            "delivery": {"silent": 0.01, "after_playback": 0.05, "interrupt_after_sentence": 0.04, "wait_for_user": 0.9},
+            "input_required": {"input_required": 0.12, "no_input_required": 0.88},
+        })
+
+        delivery = GLiNERRouter("unused", model=model).classify_background_delivery(
+            "Remind me in ten seconds", "Timer finished: stretch",
+            ToolProfile("background", can_request_input=False),
+        )
+
+        self.assertEqual(delivery, "after_playback")
+
+    def test_ambiguous_background_delivery_defers_by_default(self):
+        model = FakeGLiNER({"delivery": {"silent": 0.45, "after_playback": 0.4, "interrupt_after_sentence": 0.15}})
+        router = GLiNERRouter("unused", model=model)
+
+        self.assertEqual(router.classify_background_delivery("Do this", "Done"), "after_playback")
+
     def test_task_decision_preserves_labels_and_threshold(self):
         model = FakeGLiNER(
             {
@@ -149,7 +226,7 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
                 yield "", {"choices": [{"delta": {"content": "It is now 10:30."}}]}
 
         talker = LMStudioTalker("http://localhost:1234/v1", "local-model", stream_transport=stream_transport)
-        tools = SessionTools(lambda _: True)
+        tools = SessionTools(lambda *_: True)
         result = [part async for part in talker.stream_reply(TalkRequest("What time is it?", tools=tools))]
 
         self.assertEqual(result, ["It is now 10:30."])
@@ -211,6 +288,7 @@ class TalkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["body"]["model"], "local-model")
         self.assertEqual(captured["body"]["reasoning_effort"], "none")
         self.assertEqual([item["role"] for item in captured["body"]["messages"]], ["system", "system", "user", "assistant", "user"])
+        self.assertEqual(captured["body"]["messages"][0], {"role": "system", "content": "Be concise."})
         self.assertEqual(captured["headers"]["Content-Type"], "application/json")
 
     async def test_rejects_invalid_response(self):
@@ -224,7 +302,7 @@ class SessionToolsTests(unittest.IsolatedAsyncioTestCase):
     async def test_current_time_returns_local_iso_timestamp(self):
         from open_gptlive_poc.live.session_tools import SessionTools
 
-        tools = SessionTools(lambda _: True)
+        tools = SessionTools(lambda *_: True)
         result = await tools.execute("get_current_time", {})
         self.assertRegex(result, r"^\d{4}-\d\d-\d\dT.*[+-]\d\d:\d\d$")
         await tools.close()
@@ -236,17 +314,30 @@ class SessionToolsTests(unittest.IsolatedAsyncioTestCase):
         messages = []
         started = []
 
-        def notify(message):
+        def notify(message, request, profile):
             messages.append(message)
+            requests.append(request)
+            profiles.append(profile)
             notified.set()
             return True
 
+        requests = []
+        profiles = []
         tools = SessionTools(notify, on_timer_started=lambda seconds, message: started.append((seconds, message)))
+        tools.set_request_context("Remind me to stretch.")
+        started_at = asyncio.get_running_loop().time()
         result = await tools.execute("start_timer", {"seconds": 1, "message": "stretch"})
+        duplicate = await tools.execute("start_timer", {"seconds": 1, "message": "stretch"})
+        second_timer = await tools.execute("start_timer", {"seconds": 10, "message": "different"})
         self.assertIn("Timer started for 1 seconds", result)
+        self.assertIn("already been scheduled", duplicate)
+        self.assertIn("already been scheduled", second_timer)
         self.assertEqual(started, [(1, "stretch")])
         await asyncio.wait_for(notified.wait(), timeout=2)
+        self.assertGreaterEqual(asyncio.get_running_loop().time() - started_at, 0.95)
         self.assertEqual(messages, ["Timer finished: stretch"])
+        self.assertEqual(requests, ["Remind me to stretch."])
+        self.assertEqual(profiles, [ToolProfile("background", "urgent", can_request_input=False)])
         await tools.close()
 
 

@@ -5,6 +5,20 @@ from typing import Literal, Mapping, Protocol
 
 
 RouteKind = Literal["chat", "task", "function_call"]
+BackgroundDelivery = Literal[
+    "silent", "after_playback", "interrupt_after_sentence", "wait_for_user"
+]
+ToolExecution = Literal["inline", "background"]
+ToolUrgency = Literal["normal", "urgent"]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProfile:
+    """Runtime behavior of a tool, separate from model-generated arguments."""
+
+    execution: ToolExecution
+    urgency: ToolUrgency = "normal"
+    can_request_input: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,3 +45,8 @@ class Router(Protocol):
 
     def classify(self, transcript: str) -> RouteDecision:
         """Return a typed decision for a transcript."""
+
+    def classify_background_delivery(
+        self, request: str, result: str, profile: ToolProfile | None = None
+    ) -> BackgroundDelivery:
+        """Choose how a background result should be delivered."""

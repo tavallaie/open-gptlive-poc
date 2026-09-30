@@ -7,39 +7,39 @@
   <style>
     :root { color-scheme: dark; font: 16px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; background: #0a0b10; color: #f4f1f8; }
     * { box-sizing: border-box; }
-    body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradient(ellipse at 50% 36%, #272039 0, #12131c 38rem, #0a0b10 75rem); }
+    body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradient(ellipse at 50% 36%, #24231d 0, #12130f 38rem, #0a0b10 75rem); }
     button { color: inherit; font: inherit; cursor: pointer; }
-    button:focus-visible { outline: 2px solid #f3a5c7; outline-offset: 4px; }
+    button:focus-visible { outline: 2px solid #f4d36b; outline-offset: 4px; }
     .shell { width: min(100% - 40px, 1040px); min-height: 100vh; margin: auto; display: flex; flex-direction: column; }
     header { height: 84px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ffffff12; }
     .brand { display: flex; align-items: center; gap: 11px; font-size: .96rem; font-weight: 650; letter-spacing: .02em; }
-    .brand-mark { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(145deg, #f5b5c8, #a88aff); color: #18121f; }
+    .brand-mark { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(145deg, #ffe28a, #e5ad39); color: #18150c; }
     .brand-mark svg { width: 17px; }
     .connection { display: inline-flex; align-items: center; gap: 9px; color: #aaa6b6; font-size: .83rem; }
     .connection-dot { width: 8px; height: 8px; border-radius: 50%; background: #696673; box-shadow: 0 0 0 4px #ffffff0a; transition: background .25s, box-shadow .25s; }
     .connection[data-connected="true"] .connection-dot { background: #8ae0be; box-shadow: 0 0 12px #8ae0be99; }
     main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 54px 0 34px; }
     .intro { text-align: center; }
-    .eyebrow { color: #d5a7d0; text-transform: uppercase; letter-spacing: .19em; font-size: .7rem; font-weight: 700; }
+    .eyebrow { color: #e6c879; text-transform: uppercase; letter-spacing: .19em; font-size: .7rem; font-weight: 700; }
     h1 { margin: 11px 0 8px; font-size: clamp(2.15rem, 5vw, 3.15rem); line-height: 1.1; letter-spacing: -.055em; font-weight: 560; }
     .subtitle { margin: 0; color: #a6a2b1; font-size: .98rem; }
     .visual-stage { position: relative; width: min(100%, 700px); height: 292px; display: grid; place-items: center; margin: 20px auto 0; isolation: isolate; --orb-scale: 1; }
-    .glow { position: absolute; width: 210px; height: 210px; border-radius: 50%; background: #b68de92b; filter: blur(50px); transition: transform .4s, background .4s; z-index: -1; }
-    .orb { position: absolute; width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #ffd1df 0, #e1a7d8 17%, #a486e0 47%, #58599a 78%, #23243f 100%); box-shadow: inset -12px -17px 30px #25244270, inset 9px 9px 24px #fff5, 0 0 42px #c59bea45; opacity: .74; transform: scale(calc(.96 * var(--orb-scale))); transition: opacity .3s, transform .16s ease-out, filter .3s; }
+    .glow { position: absolute; width: 210px; height: 210px; border-radius: 50%; background: #e8b9492b; filter: blur(50px); transition: transform .4s, background .4s; z-index: -1; }
+    .orb { position: absolute; width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #fff1b8 0, #e9c76d 17%, #d5a83f 47%, #8d7033 78%, #292414 100%); box-shadow: inset -12px -17px 30px #2d281b70, inset 9px 9px 24px #fff5, 0 0 42px #e8b94945; opacity: .74; transform: scale(calc(.96 * var(--orb-scale))); transition: opacity .3s, transform .16s ease-out, filter .3s; }
     .visual-stage[data-state="listening"] .orb { animation: breathe 2.8s ease-in-out infinite; }
-    .visual-stage[data-state="thinking"] .orb { opacity: .9; filter: hue-rotate(28deg); animation: think 1.8s ease-in-out infinite; }
+    .visual-stage[data-state="thinking"] .orb { opacity: .9; filter: saturate(.85) brightness(1.08); animation: think 1.8s ease-in-out infinite; }
     .visual-stage[data-state="speaking"] .orb { opacity: 1; filter: saturate(1.3); }
-    .visual-stage[data-state="speaking"] .glow { background: #e4a8dc50; transform: scale(1.35); }
-    .bars { position: absolute; left: 50%; top: 50%; width: 228px; height: 228px; border: 1px solid #e6c4ef14; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%) scale(calc(.96 * var(--orb-scale))); transition: transform .18s ease-out, width .3s, height .3s, border-color .3s; }
-    .bars span { position: absolute; left: 50%; top: 50%; display: block; width: 3px; height: 7px; border-radius: 8px; background: linear-gradient(180deg, #f1c0d4, #b6a0f0); opacity: .2; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-112px); transform-origin: center; transition: height 65ms linear, opacity 65ms linear; }
+    .visual-stage[data-state="speaking"] .glow { background: #e8b94950; transform: scale(1.35); }
+    .bars { position: absolute; left: 50%; top: 50%; width: 228px; height: 228px; border: 1px solid #f0d47b14; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%) scale(calc(.96 * var(--orb-scale))); transition: transform .18s ease-out, width .3s, height .3s, border-color .3s; }
+    .bars span { position: absolute; left: 50%; top: 50%; display: block; width: 3px; height: 7px; border-radius: 8px; background: linear-gradient(180deg, #f8e6a7, #e5ad39); opacity: .2; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-112px); transform-origin: center; transition: height 65ms linear, opacity 65ms linear; }
     .visual-stage[data-state="listening"] { --orb-scale: 1.04; }
     .visual-stage[data-state="thinking"] { --orb-scale: .94; }
     .visual-stage[data-state="speaking"] { --orb-scale: 1.12; }
-    .visual-stage[data-state="speaking"] .bars { border-color: #e6c4ef35; }
+    .visual-stage[data-state="speaking"] .bars { border-color: #f0d47b35; }
     .mode { margin-top: -2px; min-height: 25px; color: #d5d0df; font-size: .86rem; letter-spacing: .015em; }
     .controls { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px; }
-    .connect { min-width: 190px; height: 54px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; color: #17131c; background: linear-gradient(110deg, #f4c1d4, #c7aff4); font-weight: 700; box-shadow: 0 8px 30px #bd9ce52c; transition: transform .2s, filter .2s, box-shadow .2s; }
-    .connect:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.06); box-shadow: 0 11px 36px #bd9ce54a; }
+    .connect { min-width: 190px; height: 54px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; color: #17140c; background: linear-gradient(110deg, #ffe28a, #e5ad39); font-weight: 700; box-shadow: 0 8px 30px #d5aa422c; transition: transform .2s, filter .2s, box-shadow .2s; }
+    .connect:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.06); box-shadow: 0 11px 36px #d5aa424a; }
     .connect:disabled { cursor: wait; opacity: .65; }
     .connect svg { width: 17px; }
     .disconnect { height: 46px; padding: 0 17px; border: 1px solid #ffffff20; border-radius: 999px; background: #ffffff09; color: #d1ccda; font-size: .88rem; transition: background .2s; }
@@ -53,20 +53,33 @@
     .token-settings label { display: block; margin: 12px 0 5px; }
     .token-settings input { width: 100%; padding: 10px 12px; border: 1px solid #ffffff20; border-radius: 9px; background: #ffffff09; color: #f4f1f8; font: inherit; }
     .token-settings small { display: block; margin-top: 6px; color: #858190; }
-    .conversation { width: min(100%, 680px); margin-top: 40px; border: 1px solid #ffffff14; border-radius: 18px; background: linear-gradient(145deg, #ffffff08, #ffffff03); overflow: hidden; }
-    .conversation-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 17px; border-bottom: 1px solid #ffffff10; color: #aaa6b4; font-size: .76rem; letter-spacing: .03em; }
-    .live-caption { color: #8c8797; font-size: .7rem; }
-    #transcript { max-height: 210px; min-height: 66px; overflow: auto; padding: 17px 19px; white-space: pre-wrap; color: #d5d1dc; font-size: .88rem; line-height: 1.7; scrollbar-color: #50485e transparent; }
+    .conversation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; width: min(100%, 900px); margin-top: 40px; align-items: stretch; }
+    .history-panel, .tasks-panel, .heard-panel { border: 1px solid #ffffff14; border-radius: 16px; background: linear-gradient(145deg, #ffffff08, #ffffff03); overflow: hidden; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 1px solid #ffffff10; color: #aaa6b4; font-size: .72rem; letter-spacing: .06em; }
+    .live-caption { color: #8c8797; font-size: .68rem; letter-spacing: 0; text-align: right; }
+    #transcript { display: flex; flex-direction: column; gap: 13px; max-height: 310px; min-height: 120px; overflow: auto; padding: 17px 16px; color: #d5d1dc; font-size: .88rem; line-height: 1.65; scrollbar-color: #50485e transparent; }
     #transcript:empty::before { content: "Your conversation will appear here."; color: #777382; }
-    #transcript .you { color: #eac0d4; font-weight: 650; }
-    #transcript .assistant { color: #c7b5f3; font-weight: 650; }
+    .message { max-width: 92%; padding: 10px 13px; border-radius: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .message-label { display: block; margin-bottom: 3px; color: #f0d47b; font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
+    .message-user { align-self: flex-end; background: #ffffff0c; }
+    .message-assistant { align-self: flex-start; background: #e8b9490d; }
+    .heard-panel { margin-top: 12px; }
+    #heard { min-height: 44px; padding: 11px 14px; color: #e6e1eb; font-size: .83rem; line-height: 1.5; }
+    #heard:empty::before { content: "Your speech will appear here."; color: #777382; }
+    .tasks-panel { display: flex; flex-direction: column; min-height: 100%; }
+    #tasks { display: flex; flex: 1; flex-direction: column; gap: 9px; min-height: 0; overflow: auto; padding: 12px; }
+    #tasks:empty::before { content: "No background tasks"; padding: 3px; color: #777382; font-size: .78rem; }
+    .task-item { padding: 9px 10px; border: 1px solid #ffffff0d; border-radius: 10px; background: #ffffff05; color: #d5d1dc; font-size: .76rem; line-height: 1.45; overflow-wrap: anywhere; }
+    .task-item[data-state="done"] { color: #bcb7c5; }
+    .task-item[data-state="waiting"] { border-color: #e8b94955; color: #f0d47b; }
     footer { min-height: 54px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid #ffffff10; color: #777382; font-size: .72rem; }
     #configuration { margin: 0; }
     .audio-note { display: flex; align-items: center; gap: 7px; }
     .audio-note svg { width: 14px; opacity: .7; }
     @keyframes breathe { 0%,100% { transform: scale(.96); } 50% { transform: scale(1.025); } }
     @keyframes think { 0%,100% { transform: scale(.93); } 50% { transform: scale(1.04); } }
-    @media (max-width: 600px) { .shell { width: min(100% - 28px, 1040px); } header { height: 68px; } main { padding-top: 42px; } .visual-stage { height: 250px; margin-top: 12px; } .orb { width: 126px; height: 126px; } .bars { width: 204px; height: 204px; } .bars span { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-100px); } .conversation { margin-top: 30px; } footer { align-items: flex-start; flex-direction: column; justify-content: center; padding: 12px 0; } }
+    @media (max-width: 700px) { .conversation-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 30px; } .tasks-panel { position: static; } #tasks { max-height: 130px; } }
+    @media (max-width: 600px) { .shell { width: min(100% - 28px, 1040px); } header { height: 68px; } main { padding-top: 42px; } .visual-stage { height: 250px; margin-top: 12px; } .orb { width: 126px; height: 126px; } .bars { width: 204px; height: 204px; } .bars span { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-100px); } footer { align-items: flex-start; flex-direction: column; justify-content: center; padding: 12px 0; } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
   </style>
 </head>
@@ -87,7 +100,7 @@
       </section>
       <div id="status" class="mode" role="status" aria-live="polite">Ready when you are</div>
       <div class="controls">
-        <button id="connect" class="connect"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5m-3 0h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Start talking</span></button>
+        <button id="connect" class="connect"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5m-3 0h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span id="connect-label">Start talking</span></button>
         <button id="disconnect" class="disconnect" disabled>End conversation</button>
       </div>
       <div class="try-prompts" aria-label="Try saying">
@@ -101,19 +114,34 @@
         <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="GPTLIVE_BEARER_TOKEN">
         <small>Only needed when GPTLIVE_BEARER_TOKEN is set in the server environment. Kept in page memory.</small>
       </details>
-      <section class="conversation" aria-label="Conversation transcript">
-        <div class="conversation-head"><span>CONVERSATION</span><span id="activity" class="live-caption" aria-live="polite">Live transcript</span></div>
-        <div id="transcript" aria-live="polite"></div>
-      </section>
+      <div class="conversation-layout">
+        <section aria-label="Conversation history">
+          <div class="history-panel">
+            <div class="panel-head"><span>CONVERSATION</span><span class="live-caption">Played speech and replies</span></div>
+            <div id="transcript" aria-live="polite"></div>
+          </div>
+          <section class="heard-panel" aria-label="Latest user speech">
+            <div class="panel-head"><span>WHAT I HEARD</span><span id="activity" class="live-caption" aria-live="polite">Waiting for speech</span></div>
+            <div id="heard" aria-live="polite"></div>
+          </section>
+        </section>
+        <aside class="tasks-panel" aria-label="Background tasks">
+          <div class="panel-head"><span>BACKGROUND</span><span class="live-caption">Tasks</span></div>
+          <div id="tasks" aria-live="polite"></div>
+        </aside>
+      </div>
     </main>
     <footer><p id="configuration" hx-get="/status" hx-trigger="load" hx-swap="outerHTML">Checking backend connection…</p><span class="audio-note"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 8v4h3l4 3V5L6 8H3Zm10-1a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Live microphone · 24 kHz audio</span></footer>
   </div>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script>
     const connectButton = document.querySelector("#connect");
+    const connectLabel = document.querySelector("#connect-label");
     const disconnectButton = document.querySelector("#disconnect");
     const status = document.querySelector("#status");
     const transcript = document.querySelector("#transcript");
+    const heard = document.querySelector("#heard");
+    const tasks = document.querySelector("#tasks");
     const visualStage = document.querySelector("#visual-stage");
     const connection = document.querySelector("#connection");
     const connectionLabel = document.querySelector("#connection-label");
@@ -124,17 +152,27 @@
     let analyser, inputAnalyser, visualFrame, playbackIdleTimer, activityTimer;
     let playbackAt = 0;
     const audioQueue = [];
-    const activePlayers = new Set();
+    const priorityAudioQueue = [];
+    const deferredAudioQueue = [];
+    const activePlayers = new Map();
     const playbackMappings = [];
     const assistantSegments = [];
     let queuedAudioSeconds = 0;
     let playbackStarted = false;
+    let playbackPaused = false;
+    let interruptRequested = false;
+    let awaitingUserInput = false;
+    let interruptBoundaryMs = null;
+    let interruptBoundaryTime = null;
+    let priorityPlaybackEndMs = null;
     let audioBufferTimer;
     const PLAYBACK_BUFFER_SECONDS = 0.2;
     const PLAYBACK_BUFFER_TIMEOUT_MS = 100;
+    const PLAYBACK_LOOKAHEAD_SECONDS = 0.18;
 
-    let currentLine = null, assistantLine = null, assistantContent = null;
-    let displayedAssistantText = "";
+    let activeAssistantGroup = null;
+    let lastSpeaker = null;
+    let latestTask = null;
     for (let index = 0; index < 48; index += 1) {
       const bar = document.createElement("span");
       bar.style.setProperty("--angle", `${index * 360 / 48}deg`);
@@ -149,42 +187,66 @@
       visualStage.dataset.state = state;
     }
 
-    function setActivity(message) {
-      clearTimeout(activityTimer);
+    function setActivity(message, timeout = true) {
+      if (timeout) clearTimeout(activityTimer);
       activity.textContent = message;
-      activityTimer = setTimeout(() => { activity.textContent = "Live transcript"; }, 8000);
+      if (timeout) activityTimer = setTimeout(() => { activity.textContent = "Waiting for speech"; }, 8000);
     }
 
-    function appendTranscript(role, text, newLine = false) {
-      if (!text) return;
-      if (newLine || transcript.dataset.role !== role) {
-        currentLine = document.createElement("p");
-        currentLine.className = "transcript-line";
-        const speaker = document.createElement("span");
-        speaker.className = role === "You" ? "you" : "assistant";
-        speaker.textContent = `${role}: `;
-        currentLine.append(speaker);
-        transcript.append(currentLine);
-        transcript.dataset.role = role;
-        if (role === "Assistant") assistantLine = currentLine;
-      }
-      currentLine.append(document.createTextNode(text));
+    function clearConversation() {
+      transcript.textContent = "";
+      heard.textContent = "";
+      tasks.textContent = "";
+      assistantSegments.length = 0;
+      activeAssistantGroup = null;
+      lastSpeaker = null;
+      latestTask = null;
+      setActivity("Waiting for speech");
+    }
+
+    function appendTranscript(role, text) {
+      if (!text && role !== "Assistant") return;
+      const message = document.createElement("article");
+      message.className = `message ${role === "You" ? "message-user" : "message-assistant"}`;
+      const label = document.createElement("span");
+      label.className = "message-label";
+      label.textContent = role;
+      const content = document.createElement("span");
+      content.textContent = text;
+      message.append(label, content);
+      transcript.append(message);
+      lastSpeaker = role === "You" ? "user" : "assistant";
       transcript.scrollTop = transcript.scrollHeight;
+      return content;
     }
 
-    function ensureAssistantLine() {
-      if (assistantLine?.isConnected && transcript.dataset.role === "Assistant") return;
-      currentLine = document.createElement("p");
-      currentLine.className = "transcript-line";
-      const speaker = document.createElement("span");
-      speaker.className = "assistant";
-      speaker.textContent = "Assistant: ";
-      assistantContent = document.createElement("span");
-      currentLine.append(speaker, assistantContent);
-      transcript.append(currentLine);
-      transcript.dataset.role = "Assistant";
-      assistantLine = currentLine;
-      displayedAssistantText = "";
+    function ensureAssistantGroup() {
+      if (activeAssistantGroup && lastSpeaker === "assistant") return activeAssistantGroup;
+      const content = appendTranscript("Assistant", "");
+      activeAssistantGroup = {content, segments: []};
+      lastSpeaker = "assistant";
+      return activeAssistantGroup;
+    }
+
+    function addTask(message, state = "working") {
+      const item = document.createElement("div");
+      item.className = "task-item";
+      item.dataset.state = state;
+      item.textContent = message;
+      tasks.append(item);
+      latestTask = item;
+      tasks.scrollTop = tasks.scrollHeight;
+      return item;
+    }
+
+    function updateTask(message, state = "working") {
+      const item = latestTask?.isConnected && latestTask.dataset.state === "working"
+        ? latestTask
+        : addTask(message, state);
+      item.textContent = message;
+      item.dataset.state = state;
+      latestTask = item;
+      tasks.scrollTop = tasks.scrollHeight;
     }
 
     function playbackTimeFor(audioOffsetMs) {
@@ -199,10 +261,9 @@
       return mapping.playbackStart + fraction * (mapping.playbackEnd - mapping.playbackStart);
     }
 
-    function renderPlayedAssistantText(createLine = true) {
+    function renderPlayedAssistantText() {
       if (!audioContext || assistantSegments.length === 0) return;
       const now = audioContext.currentTime;
-      const visible = [];
       for (const segment of assistantSegments) {
         const start = playbackTimeFor(segment.startMs);
         if (start === null) continue;
@@ -212,34 +273,19 @@
         if (progress < 1) {
           while (count > 0 && count < segment.text.length && !/\s/.test(segment.text[count])) count -= 1;
         }
-        const played = segment.text.slice(0, count).trimEnd();
-        if (played) visible.push(played);
+        segment.group.visible.set(segment, segment.text.slice(0, count).trimEnd());
       }
-      const text = visible.join(" ");
-      if (text === displayedAssistantText) return;
-      if (!text) {
-        if (!createLine && assistantContent) assistantLine.remove();
-        return;
+      for (const group of new Set(assistantSegments.map(segment => segment.group))) {
+        group.content.textContent = group.segments
+          .map(segment => group.visible.get(segment) ?? "")
+          .filter(Boolean)
+          .join(" ");
       }
-      if (!assistantContent && !createLine) return;
-      if (!assistantContent) ensureAssistantLine();
-      assistantContent.textContent = text;
-      displayedAssistantText = text;
       transcript.scrollTop = transcript.scrollHeight;
     }
 
-    function revealCompletedSpeech(audioEndMs) {
-      const completed = assistantSegments
-        .filter(segment => segment.endMs <= audioEndMs)
-        .map(segment => segment.text.trim())
-        .filter(Boolean);
-      if (!completed.length) return;
-      const text = completed.join(" ");
-      if (text === displayedAssistantText) return;
-      ensureAssistantLine();
-      assistantContent.textContent = text;
-      displayedAssistantText = text;
-      transcript.scrollTop = transcript.scrollHeight;
+    function revealCompletedSpeech() {
+      renderPlayedAssistantText();
     }
 
     function sendAudio(pcm) {
@@ -250,7 +296,7 @@
       socket.send(JSON.stringify({type: "session.input_audio.append", audio: btoa(binary)}));
     }
 
-    function playAudio(encoded, startMs, endMs) {
+    function playAudio(encoded, startMs, endMs, priority = false) {
       const binary = atob(encoded);
       const samples = new Int16Array(binary.length / 2);
       for (let i = 0; i < samples.length; i += 1) {
@@ -260,8 +306,9 @@
       const buffer = audioContext.createBuffer(1, samples.length, 24000);
       const channel = buffer.getChannelData(0);
       for (let i = 0; i < samples.length; i += 1) channel[i] = samples[i] / 32768;
-      audioQueue.push({buffer, startMs, endMs});
-      queuedAudioSeconds += buffer.duration;
+      const packet = {buffer, startMs, endMs, priority};
+      (priority ? priorityAudioQueue : audioQueue).push(packet);
+      if (!priority) queuedAudioSeconds += buffer.duration;
       if (!playbackStarted && queuedAudioSeconds < PLAYBACK_BUFFER_SECONDS) {
         audioBufferTimer ??= setTimeout(() => {
           audioBufferTimer = null;
@@ -272,57 +319,157 @@
       startAudioPlayback();
     }
 
+    function playbackOffsetAt(time) {
+      const mapping = playbackMappings.find(item => time >= item.playbackStart && time < item.playbackEnd);
+      if (!mapping) return null;
+      const fraction = (time - mapping.playbackStart) / (mapping.playbackEnd - mapping.playbackStart);
+      return mapping.audioStartMs + fraction * (mapping.audioEndMs - mapping.audioStartMs);
+    }
+
+    function playbackTimeAtEnd(audioOffsetMs) {
+      const mapping = playbackMappings.find(item => item.audioEndMs === audioOffsetMs);
+      return mapping?.playbackEnd ?? playbackTimeFor(audioOffsetMs);
+    }
+
+    function deferPacket(packet) {
+      deferredAudioQueue.push(packet);
+      queuedAudioSeconds -= packet.buffer.duration;
+    }
+
+    function requestAudioInterrupt(awaitUser = false) {
+      if (interruptRequested) return;
+      interruptRequested = true;
+      awaitingUserInput = awaitUser;
+      const offset = playbackOffsetAt(audioContext.currentTime);
+      const segment = offset === null
+        ? null
+        : assistantSegments.find(item => offset >= item.startMs && offset < item.endMs);
+      interruptBoundaryMs = segment?.endMs ?? offset ?? audioQueue[0]?.startMs ?? 0;
+      interruptBoundaryTime = segment ? playbackTimeAtEnd(segment.endMs) : audioContext.currentTime;
+
+      for (let index = audioQueue.length - 1; index >= 0; index -= 1) {
+        const packet = audioQueue[index];
+        if (packet.startMs >= interruptBoundaryMs) {
+          audioQueue.splice(index, 1);
+          deferPacket(packet);
+        }
+      }
+      for (const [player, record] of activePlayers) {
+        if (!record.priority && record.playbackStart >= interruptBoundaryTime) {
+          try { player.stop(); } catch {}
+          activePlayers.delete(player);
+          deferredAudioQueue.push(record.packet);
+        }
+      }
+      for (let index = playbackMappings.length - 1; index >= 0; index -= 1) {
+        if (playbackMappings[index].playbackStart >= interruptBoundaryTime) playbackMappings.splice(index, 1);
+      }
+      playbackAt = Math.max(
+        audioContext.currentTime,
+        ...[...activePlayers.values()].map(record => record.playbackEnd),
+      );
+      startAudioPlayback();
+    }
+
+    function resumeDeferredPlayback() {
+      interruptRequested = false;
+      interruptBoundaryMs = null;
+      interruptBoundaryTime = null;
+      priorityPlaybackEndMs = null;
+      awaitingUserInput = false;
+      audioQueue.push(...deferredAudioQueue.splice(0).sort((left, right) => left.startMs - right.startMs));
+      queuedAudioSeconds += audioQueue.reduce((total, packet) => total + packet.buffer.duration, 0);
+      playbackAt = Math.max(playbackAt, audioContext.currentTime + 0.02);
+      startAudioPlayback();
+    }
+
     function startAudioPlayback() {
-      if (!audioContext || audioQueue.length === 0) return;
+      if (!audioContext || playbackPaused || (audioQueue.length === 0 && priorityAudioQueue.length === 0)) return;
       playbackStarted = true;
       clearTimeout(audioBufferTimer);
       audioBufferTimer = null;
-      playbackAt = Math.max(playbackAt, audioContext.currentTime + 0.03);
-      while (audioQueue.length) {
-        const queued = audioQueue.shift();
+      playbackAt = Math.max(playbackAt, audioContext.currentTime + 0.02);
+      while (playbackAt <= audioContext.currentTime + PLAYBACK_LOOKAHEAD_SECONDS) {
+        let queued;
+        if (interruptRequested) {
+          if (playbackAt + 0.005 < interruptBoundaryTime) {
+            queued = audioQueue[0];
+            if (!queued || queued.startMs >= interruptBoundaryMs) break;
+            audioQueue.shift();
+            queuedAudioSeconds -= queued.buffer.duration;
+          } else {
+            queued = priorityAudioQueue.shift();
+            if (!queued) break;
+          }
+        } else {
+          queued = priorityAudioQueue.shift() ?? audioQueue.shift();
+          if (!queued) break;
+          if (!queued.priority) queuedAudioSeconds -= queued.buffer.duration;
+        }
         const buffer = queued.buffer;
         const player = audioContext.createBufferSource();
         player.buffer = buffer;
         player.connect(analyser);
-        activePlayers.add(player);
         player.onended = () => {
           activePlayers.delete(player);
-          // Keep the transcript in sync with what the browser actually
-          // finished playing, even if a timestamp rounding edge was hit.
-          revealCompletedSpeech(queued.endMs);
+          revealCompletedSpeech();
+          if (queued.priority && priorityPlaybackEndMs !== null && queued.endMs >= priorityPlaybackEndMs) {
+            if (awaitingUserInput) {
+              setMode("Waiting for your instruction", "listening");
+              setActivity("Waiting for your instruction", false);
+              return;
+            }
+            resumeDeferredPlayback();
+            return;
+          }
+          startAudioPlayback();
         };
         const playbackStart = playbackAt;
         player.start(playbackStart);
         playbackAt += buffer.duration;
-        playbackMappings.push({
+        const mapping = {
           audioStartMs: queued.startMs,
           audioEndMs: queued.endMs,
           playbackStart,
           playbackEnd: playbackAt,
-        });
-        queuedAudioSeconds -= buffer.duration;
+        };
+        playbackMappings.push(mapping);
+        activePlayers.set(player, {packet: queued, playbackStart, playbackEnd: playbackAt});
       }
       clearTimeout(playbackIdleTimer);
       const finishPlayback = () => {
-        if (!audioContext) return;
-        if (audioContext.currentTime >= playbackAt) setMode("Listening to you", "listening");
+        if (!audioContext || playbackPaused) return;
+        if (interruptRequested) return;
+        if (audioContext.currentTime >= playbackAt && !activePlayers.size && !audioQueue.length && !priorityAudioQueue.length) setMode("Listening to you", "listening");
         else playbackIdleTimer = setTimeout(finishPlayback, 60);
       };
-      playbackIdleTimer = setTimeout(finishPlayback, Math.max(0, (playbackAt - audioContext.currentTime) * 1000) + 40);
+      const nextScheduleMs = Math.max(20, (playbackAt - audioContext.currentTime - PLAYBACK_LOOKAHEAD_SECONDS) * 1000);
+      playbackIdleTimer = setTimeout(() => {
+        startAudioPlayback();
+        finishPlayback();
+      }, nextScheduleMs);
     }
 
     function cancelPlayback() {
       clearTimeout(playbackIdleTimer);
       clearTimeout(audioBufferTimer);
       playbackIdleTimer = audioBufferTimer = null;
-      for (const player of activePlayers) {
+      for (const player of activePlayers.keys()) {
         try { player.stop(); } catch {}
       }
       activePlayers.clear();
       audioQueue.length = 0;
+      priorityAudioQueue.length = 0;
+      deferredAudioQueue.length = 0;
       playbackMappings.length = 0;
       queuedAudioSeconds = 0;
       playbackStarted = false;
+      interruptRequested = false;
+      awaitingUserInput = false;
+      interruptBoundaryMs = null;
+      interruptBoundaryTime = null;
+      priorityPlaybackEndMs = null;
+      playbackPaused = false;
       playbackAt = audioContext?.currentTime ?? 0;
     }
 
@@ -330,39 +477,61 @@
       if (event.type === "session.started") {
         connection.dataset.connected = "true";
         connectionLabel.textContent = "Connected";
+        connectButton.disabled = false;
+        connectLabel.textContent = "Pause";
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.input_transcript.delta") {
         clearTimeout(activityTimer);
-        activity.textContent = "Live transcript";
-        appendTranscript("You", event.text ?? event.delta ?? "", true);
+        setActivity("Speech recognized", false);
+        const text = event.text ?? event.delta ?? "";
+        heard.textContent = text;
+        appendTranscript("You", text);
+        if (latestTask?.dataset.state === "waiting") {
+          latestTask.textContent = "Instruction received";
+          latestTask.dataset.state = "done";
+        }
         setMode("Thinking about what you said…", "thinking");
       }
       if (event.type === "session.output_transcript.delta") {
         setMode("Putting a reply together…", "thinking");
       }
       if (event.type === "session.output_audio.transcript") {
-        if (transcript.dataset.role === "You") assistantSegments.length = 0;
-        assistantSegments.push({text: event.text, startMs: event.start_ms, endMs: event.end_ms});
+        const group = ensureAssistantGroup();
+        const segment = {text: event.text, startMs: event.start_ms, endMs: event.end_ms, priority: event.priority === true, group};
+        group.segments.push(segment);
+        group.visible ??= new Map();
+        assistantSegments.push(segment);
+        if (event.priority === true) priorityPlaybackEndMs = event.end_ms;
         renderPlayedAssistantText();
       }
       if (event.type === "session.output_audio.started") setMode("Preparing a voice reply…", "thinking");
+      if (event.type === "session.output_audio.interrupt") requestAudioInterrupt(event.await_user === true);
       if (event.type === "session.output_audio.delta") {
-        playAudio(event.delta ?? event.audio ?? "", event.start_ms, event.end_ms);
+        playAudio(event.delta ?? event.audio ?? "", event.start_ms, event.end_ms, event.priority === true);
         setMode("Speaking", "speaking");
       }
+      if (event.type === "session.output_audio.interrupt_aborted") resumeDeferredPlayback();
       if (event.type === "session.output_audio.cancelled") {
-        renderPlayedAssistantText(false);
+        renderPlayedAssistantText();
         cancelPlayback();
         assistantSegments.length = 0;
-        assistantLine = null;
-        assistantContent = null;
-        displayedAssistantText = "";
+        activeAssistantGroup = null;
+        connectLabel.textContent = "Pause";
         setMode("Listening to you", "listening");
       }
       if (event.type === "session.delegation.created") setMode("Working on that…", "thinking");
-      if (event.type === "session.delegation.created") setActivity("I’m working on that in the background.");
-      if (event.type === "session.background.update") setActivity(event.message ?? "Background update received.");
+      if (event.type === "session.delegation.created") {
+        updateTask("Working in the background");
+        setActivity("Background task started");
+      }
+      if (event.type === "session.background.update") {
+        const message = event.message ?? "Background update";
+        const done = /completed|finished|ready|quietly|pausing/i.test(message);
+        const waiting = /instruction|additional information|your choice/i.test(message);
+        updateTask(message, waiting ? "waiting" : done ? "done" : "working");
+        setActivity(done ? "Background task complete" : "Background task updated");
+      }
       if (event.type === "session.closed") stopLocalAudio("Disconnected.");
       if (event.type === "error") setStatus(event.error?.message ?? "Server error.");
     }
@@ -424,22 +593,27 @@
       clearTimeout(audioBufferTimer);
       audioBufferTimer = null;
       audioQueue.length = 0;
+      priorityAudioQueue.length = 0;
+      deferredAudioQueue.length = 0;
       playbackMappings.length = 0;
       assistantSegments.length = 0;
       activePlayers.clear();
       queuedAudioSeconds = 0;
       playbackStarted = false;
-      transcript.textContent = "";
-      delete transcript.dataset.role;
-      currentLine = null;
-      assistantLine = null;
-      assistantContent = null;
-      displayedAssistantText = "";
+      interruptRequested = false;
+      awaitingUserInput = false;
+      interruptBoundaryMs = null;
+      interruptBoundaryTime = null;
+      priorityPlaybackEndMs = null;
+      activeAssistantGroup = null;
+      lastSpeaker = null;
       playbackAt = 0;
       visualStage.dataset.state = "idle";
       connection.dataset.connected = "false";
       connectionLabel.textContent = "Not connected";
       connectButton.disabled = false;
+      connectLabel.textContent = "Start talking";
+      playbackPaused = false;
       disconnectButton.disabled = true;
       setStatus(message);
     }
@@ -464,7 +638,20 @@
     }
 
     connectButton.addEventListener("click", async () => {
+      if (connection.dataset.connected === "true") {
+        playbackPaused = !playbackPaused;
+        connectLabel.textContent = playbackPaused ? "Resume" : "Pause";
+        if (playbackPaused) {
+          clearTimeout(playbackIdleTimer);
+          playbackIdleTimer = null;
+          setMode("Reply paused", "listening");
+        } else {
+          startAudioPlayback();
+        }
+        return;
+      }
       connectButton.disabled = true;
+      clearConversation();
       setMode("Connecting to your assistant…", "thinking");
       try {
         const token = tokenInput.value.trim();

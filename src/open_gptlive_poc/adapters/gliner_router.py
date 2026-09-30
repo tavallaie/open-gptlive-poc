@@ -10,7 +10,7 @@ import re
 import sys
 from typing import Any, cast
 
-from ..ports.router import RouteDecision, RouteKind, Router
+from ..ports.router import BackgroundDelivery, RouteDecision, RouteKind, Router, ToolProfile
 
 
 _QUESTION = {
@@ -20,7 +20,13 @@ _QUESTION = {
     "interrupt": ["interrupt_current_response", "continue_current_response"],
     "turn_state": ["wait_for_user", "ready_to_process"],
 }
+_BACKGROUND_DELIVERY_QUESTION = {
+    "delivery": ["silent", "after_playback", "interrupt_after_sentence", "wait_for_user"],
+    "confirmation": ["confirmation_requested", "no_confirmation_requested"],
+    "input_required": ["input_required", "no_input_required"],
+}
 _WAIT_FOR_USER_THRESHOLD = 0.7
+_BACKGROUND_DELIVERY_THRESHOLD = 0.7
 
 
 class GLiNERRouter(Router):
@@ -69,6 +75,58 @@ class GLiNERRouter(Router):
             interrupt_current=interrupt,
             wait_for_user=wait_for_user,
         )
+
+    def classify_background_delivery(
+        self, request: str, result: str, profile: ToolProfile | None = None
+    ) -> BackgroundDelivery:
+        """Use the user's intent and actual result to choose notification timing."""
+        profile_context = "Tool profile: unspecified"
+        if profile is not None:
+            profile_context = (
+                f"Tool profile: execution={profile.execution}, urgency={profile.urgency}. "
+                f"can_request_input={profile.can_request_input}. "
+                "Use this as context for timing, while still considering the user's intent and result."
+            )
+        context = (
+            f"Original user request: {request}\n"
+            f"Background operation result: {result}\n"
+            f"{profile_context}\n"
+            "Choose whether to omit this result from speech as a silent update, speak it after current "
+            "playback, or briefly interrupt after the current sentence. Consider the user's intent and "
+            "whether the result needs immediate attention. If the user explicitly requests confirmation "
+            "or a status report, do not classify the result as silent. If the result cannot proceed without "
+            "the user's choice or additional instructions, choose wait_for_user; the user must respond "
+            "before the suspended reply can continue. Independently label whether the actual result "
+            "requires user input before any work can continue. A completed notification or reminder "
+            "does not require input merely because the user may want to say something afterward."
+        )
+        classified = self.model.classify_text(
+            context, _BACKGROUND_DELIVERY_QUESTION, include_confidence=True
+        )
+        if not isinstance(classified, Mapping):
+            raise TypeError("GLiNER background-delivery response must be a mapping")
+        delivery = _confident_choice(
+            _label_confidence(classified.get("delivery")),
+            ("silent", "after_playback", "interrupt_after_sentence", "wait_for_user"),
+            "after_playback",
+        )
+        confirmation = classified.get("confirmation")
+        confirmation_requested = confirmation is not None and _score(
+            _label_confidence(confirmation),
+            positive=("confirmation_requested", "confirmation", "yes", "true"),
+        ) >= _BACKGROUND_DELIVERY_THRESHOLD
+        if delivery == "silent" and confirmation_requested:
+            delivery = "after_playback"
+        input_required = _confident_choice(
+            _label_confidence(classified.get("input_required")),
+            ("input_required", "no_input_required"),
+            "no_input_required",
+        )
+        if delivery == "wait_for_user" and input_required != "input_required":
+            delivery = "after_playback"
+        if delivery == "wait_for_user" and profile is not None and not profile.can_request_input:
+            delivery = "after_playback"
+        return cast(BackgroundDelivery, delivery)
 
     @staticmethod
     def _load_model(model_path: str, device: str, model_factory: Callable[[str], Any] | None) -> Any:
@@ -153,6 +211,21 @@ def _choice(value: object, choices: tuple[str, ...], default: str) -> str:
         scores = {str(key): float(item) for key, item in value.items() if isinstance(item, Real)}
         if scores:
             return max((choice for choice in choices if choice in scores), key=scores.get, default=default)
+    return default
+
+
+def _confident_choice(value: object, choices: tuple[str, ...], default: str) -> str:
+    """Use a delivery label only when GLiNER's score is decisive."""
+    if isinstance(value, str):
+        return value if value in choices else default
+    if isinstance(value, (tuple, list)) and len(value) >= 2:
+        label, confidence = value[0], value[1]
+        if isinstance(label, str) and label in choices and isinstance(confidence, Real):
+            return label if confidence >= _BACKGROUND_DELIVERY_THRESHOLD else default
+    if isinstance(value, Mapping):
+        scores = {str(label): float(score) for label, score in value.items() if isinstance(score, Real)}
+        label = max((item for item in choices if item in scores), key=scores.get, default=default)
+        return label if scores.get(label, 0.0) >= _BACKGROUND_DELIVERY_THRESHOLD else default
     return default
 
 
